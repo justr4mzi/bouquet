@@ -344,6 +344,11 @@ AppLoader_DeconstructedRomDirectory::AppLoader_DeconstructedRomDirectory(FileSys
             break;
         }
     }
+    auto parent = file_dir->GetParentDirectory();
+    for (int level = 0; level < 3 && nacp_file == nullptr && parent != nullptr; ++level) {
+        nacp_file = parent->GetFile("control.nacp");
+        parent = parent->GetParentDirectory();
+    }
 
     if (nacp_file != nullptr) {
         control.emplace(nacp_file);
@@ -351,8 +356,10 @@ AppLoader_DeconstructedRomDirectory::AppLoader_DeconstructedRomDirectory(FileSys
     }
 
     romfs_exefs_dir = file_dir;
+    romfs = FindLooseRomFS(file_dir);
     if (const auto title_dir = file_dir->GetParentDirectory()) {
         romfs_version = RomFSProductVersion(FindLooseRomFSDirectory(title_dir));
+    }
     }
 }
 
