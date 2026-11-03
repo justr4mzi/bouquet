@@ -1887,6 +1887,8 @@ private:
     // next vblank instead (title 4 ran at up to 160 fps, its timing and audio with it).
     Nx2PresentPacer m_present_pacer;
     u32 m_swap_word{};
+    u32 m_swap_stable{};  ///< Presents since the swap word last changed (capped)
+    u32 m_swap_changes{}; ///< Logged swap word changes (the first 32)
 
     struct FrameTrace {
         Common::DkbFrameTrace::RateLimit rate;
@@ -1922,7 +1924,25 @@ private:
         const bool mkw_dynamic =
             process != nullptr && process->GetProgramId() == Settings::MarioKartWorldProgramId &&
             process->IsMkwDynamicFpsPatchApplied() && Settings::values.mkw_dynamic_fps.GetValue();
-        u32 swap_interval = std::clamp<u32>(timing >> 16, 1, 4);
+        // EDEN_NX2_SWAP_STABLE=<presents> (from Orchid, after Selevet): honour an interval above 1
+        // only once the game has kept it that long. Mario Kart World flips between 1 and 2 every
+        // few frames (its own timing on a VRR display); held to two vblanks on each 2 it fell from
+        // ~40 to 20-30 fps for Selevet. Mario Kart World waits 120 presents by default, as in
+        // Selevet; other titles honour every interval at once unless the switch is set.
+        static const char* const stable_env = std::getenv("EDEN_NX2_SWAP_STABLE");
+        const u32 stable_presents =
+            stable_env != nullptr ? static_cast<u32>(std::strtoul(stable_env, nullptr, 10))
+            : (process != nullptr && process->GetProgramId() == Settings::MarioKartWorldProgramId)
+                ? 120U
+                : 0U;
+        const bool changed = timing != std::exchange(m_swap_word, timing);
+        if (changed) {
+            m_swap_stable = 0;
+        } else if (m_swap_stable < stable_presents) {
+            ++m_swap_stable;
+        }
+        u32 swap_interval =
+            m_swap_stable >= stable_presents ? std::clamp<u32>(timing >> 16, 1, 4) : 1U;
         if (mkw_dynamic) {
             swap_interval = 1;
         }
@@ -1947,7 +1967,9 @@ private:
         if (!Settings::values.use_speed_limit.GetValue() || Settings::SpeedLimit() == 0) {
             return;
         }
-        if (timing != std::exchange(m_swap_word, timing)) {
+        // The first 32 changes: a title that flips its interval every few frames filled the log.
+        if (changed && m_swap_changes < 32) {
+            ++m_swap_changes;
             LOG_INFO(Service, "nx2:vi2 present #{} swap interval {} at {} Hz (word 12 = {:#x})",
                      m_presents, swap_interval, refresh_rate, timing);
         }
