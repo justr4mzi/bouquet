@@ -316,7 +316,7 @@ Result KAddressArbiter::WaitIfLessThan(uint64_t addr, s32 value, bool decrement,
     return cur_thread->GetWaitResult();
 }
 
-Result KAddressArbiter::WaitIfEqual(uint64_t addr, s32 value, s64 timeout) {
+Result KAddressArbiter::WaitIfEqual(uint64_t addr, s64 value, s64 timeout, bool is_64_bit) {
     // Prepare to wait.
     KThread* cur_thread = GetCurrentThreadPointer(system.Kernel());
     KHardwareTimer* timer{};
@@ -335,7 +335,11 @@ Result KAddressArbiter::WaitIfEqual(uint64_t addr, s32 value, s64 timeout) {
         s64 user_value{};
         bool succeeded{};
         if (is_64_bit) {
-            succeeded = ReadFromUser(system.Kernel(), std::addressof(user_value), addr);
+            auto& memory = GetCurrentMemory(system.Kernel());
+            succeeded = memory.IsValidVirtualAddressRange(addr, sizeof(s64));
+            if (succeeded) {
+                user_value = static_cast<s64>(memory.Read64(addr));
+            }
         } else {
             s32 user_value32{};
             succeeded = ReadFromUser(system.Kernel(), std::addressof(user_value32), addr);
