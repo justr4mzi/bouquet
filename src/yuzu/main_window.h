@@ -384,6 +384,7 @@ private slots:
     void OnToggleGraphicsAPI();
     void OnToggleDockedMode();
     void OnToggleGpuAccuracy();
+    void OnToggleFrameGen();
     void OnToggleAdaptingFilter();
     void OnConfigurePerGame();
     void OnLoadAmiibo();
@@ -462,6 +463,7 @@ private:
     void UpdateVolumeUI();
     void UpdateStatusBar();
     void UpdateGPUAccuracyButton();
+    void UpdateFrameGenButton();
     void UpdateStatusButtons();
     void UpdateUISettings();
     void UpdateInputDrivers();
@@ -533,6 +535,7 @@ private:
     QLabel* tas_label = nullptr;
     QLabel* firmware_label = nullptr;
     QPushButton* gpu_accuracy_button = nullptr;
+    QPushButton* frame_gen_button = nullptr;
     QPushButton* renderer_status_button = nullptr;
     QPushButton* refresh_button = nullptr;
     QPushButton* dock_status_button = nullptr;
