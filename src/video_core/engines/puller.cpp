@@ -75,6 +75,12 @@ bool PeekAcquire() {
     return enabled && VideoCommon::GpuSplit::Get().Active();
 }
 
+void MarkSemaphorePage(DmaPusher& dma_pusher, GPUVAddr address) {
+    if (const auto device = dma_pusher.memory_manager.GpuToCpuAddress(address)) {
+        Tegra::Nx2MarkSemaphorePage(*device);
+    }
+}
+
 // Releases queued for the split's back (GpuSplit::NoteQueuedRelease). Selevet measured Mario Kart
 // World's front draining the back ~40% of its time on acquires the 3D engine's queued releases
 // meet. EDEN_NX2_ACQUIRE_QUEUED=0 drains as before.
@@ -253,6 +259,7 @@ void Puller::ProcessFenceActionMethod(DmaPusher& dma_pusher) {
 }
 
 void Puller::ProcessSemaphoreTriggerMethod(DmaPusher& dma_pusher) {
+    MarkSemaphorePage(dma_pusher, regs.semaphore_address.SemaphoreAddress());
     const auto semaphoreOperationMask = 0xF;
     const auto op = GpuSemaphoreOperation(regs.semaphore_trigger & semaphoreOperationMask);
     // EDEN_NX2_SEM_WATCH=<gpu address>: log every release/acquire on the 16 bytes there.
@@ -355,6 +362,7 @@ void Puller::ProcessSemaphoreTriggerMethod(DmaPusher& dma_pusher) {
 }
 
 void Puller::ProcessSemaphoreRelease(DmaPusher& dma_pusher) {
+    MarkSemaphorePage(dma_pusher, regs.semaphore_address.SemaphoreAddress());
     const GPUVAddr sequence_address{regs.semaphore_address.SemaphoreAddress()};
     const u32 payload = regs.semaphore_release;
     OnBack([rasterizer = dma_pusher.rasterizer, sequence_address, payload] {
@@ -365,6 +373,7 @@ void Puller::ProcessSemaphoreRelease(DmaPusher& dma_pusher) {
 }
 
 void Puller::ProcessSemaphoreAcquire(DmaPusher& dma_pusher) {
+    MarkSemaphorePage(dma_pusher, regs.semaphore_address.SemaphoreAddress());
     DrainBack();
     u32 word = dma_pusher.memory_manager.Read<u32>(regs.semaphore_address.SemaphoreAddress());
     const auto value = regs.semaphore_acquire;
@@ -386,6 +395,7 @@ void Puller::ProcessSemaphoreExecute(DmaPusher& dma_pusher, u32 argument) {
                              (regs.reg_array[0x17] & ~3U);
     const u32 payload = regs.reg_array[0x19];
     const u32 operation = argument & 7;
+    MarkSemaphorePage(dma_pusher, address);
     if (operation == 1) { // RELEASE
         OnBack([rasterizer = dma_pusher.rasterizer, address, payload] {
             rasterizer->Query(address, VideoCommon::QueryType::Payload,

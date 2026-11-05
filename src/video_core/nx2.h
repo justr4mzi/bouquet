@@ -83,6 +83,30 @@ inline void Nx2ClearGpuWrittenPages() {
     g_nx2_has_command_list_pages.store(false, std::memory_order_relaxed);
 }
 
+// Device pages semaphores and queries are released or acquired on: the values there come from
+// work the split's back may not have run yet (from monteger8/Eglantine-DKB).
+inline std::array<std::atomic<u64>, (u64{1} << (36 - Nx2WrittenPageBits)) / 64> g_nx2_semaphore_pages{};
+
+inline void Nx2MarkSemaphorePage(u64 device_address) {
+    const u64 page = device_address >> Nx2WrittenPageBits;
+    if (page >= g_nx2_semaphore_pages.size() * 64) {
+        return;
+    }
+    auto& word = g_nx2_semaphore_pages[page / 64];
+    const u64 bit = u64{1} << (page % 64);
+    if ((word.load(std::memory_order_relaxed) & bit) == 0) {
+        word.fetch_or(bit, std::memory_order_relaxed);
+    }
+}
+
+[[nodiscard]] inline bool Nx2IsSemaphorePage(u64 device_address) {
+    const u64 page = device_address >> Nx2WrittenPageBits;
+    if (page >= g_nx2_semaphore_pages.size() * 64) {
+        return true;
+    }
+    return (g_nx2_semaphore_pages[page / 64].load(std::memory_order_relaxed) >> (page % 64)) & 1;
+}
+
 [[nodiscard]] inline bool Nx2IsGpuWritten(u64 device_address) {
     const u64 page = device_address >> Nx2WrittenPageBits;
     if (page >= g_nx2_gpu_written_pages.size() * 64) {

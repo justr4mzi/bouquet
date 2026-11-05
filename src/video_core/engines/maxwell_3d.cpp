@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <cstdlib>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -1183,6 +1184,14 @@ void Maxwell3D::FrontWrite(VideoCommon::GpuSplit& split, FrontState& fs, u32 met
     } else {
         split.Method(this, method, argument, is_last_call, nullptr);
     }
+    if (method == MAXWELL3D_REG_INDEX(report_semaphore.query)) {
+        const GPUVAddr report_address =
+            (GPUVAddr{fs.regs[MAXWELL3D_REG_INDEX(report_semaphore.address_high)]} << 32) |
+            fs.regs[MAXWELL3D_REG_INDEX(report_semaphore.address_low)];
+        if (const auto device = memory_manager.GpuToCpuAddress(report_address)) {
+            Nx2MarkSemaphorePage(*device);
+        }
+    }
     // A payload release (ProcessQueryGet) is now queued: acquires it meets need not drain.
     if (method == MAXWELL3D_REG_INDEX(report_semaphore.query) && Nx2AcquireQueuedEnabled()) {
         Regs::ReportSemaphore report{};
@@ -1372,6 +1381,33 @@ void Maxwell3D::FrontDmaRead(VideoCommon::GpuSplit& split, FrontState& fs, u32 m
         memory_manager.ReadBlockUnsafe(source, diag_before.data(), read_bytes);
     }
     VideoCommon::Nx2Profile::CountDmaRead(macro);
+    // Donkey Kong Bananza's ~500 reads a second are of pages no shader, copy or semaphore ever
+    // wrote; for those, wait only for the compute and copy work queued (which could write such a
+    // page for the first time), not for every draw. EDEN_NX2_DMA_DRAIN=1 always waits for
+    // everything. From monteger8/Eglantine-DKB.
+    static const bool always_drain = [] {
+        const char* value = std::getenv("EDEN_NX2_DMA_DRAIN");
+        return value != nullptr && value[0] == '1';
+    }();
+    bool gpu_written_source = always_drain || !diag_before.empty();
+    for (GPUVAddr page = source & ~GPUVAddr{0xfff};
+         !gpu_written_source && page < source + read_bytes; page += 0x1000) {
+        const auto device = memory_manager.GpuToCpuAddress(page);
+        gpu_written_source = !device || Tegra::Nx2IsGpuWritten(*device) ||
+                             Tegra::Nx2IsSemaphorePage(*device);
+    }
+    if (!gpu_written_source) {
+        split.WaitForWriters();
+        for (u32 i = 0; i < words; ++i) {
+            const u32 word = memory_manager.Read<u32>(source + u64{i} * sizeof(u32));
+            if (method == 0x158) {
+                fs.parameters.push_back(word);
+            } else if (ram + i < native_data_ram.size()) {
+                native_data_ram[ram + i] = word;
+            }
+        }
+        return;
+    }
     split.Drain(VideoCommon::DrainSite::MacroDmaRead);
     if (VideoCommon::QueryDma::TraceEnabled()) {
         split.Run(
