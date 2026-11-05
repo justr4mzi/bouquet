@@ -3,16 +3,23 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdlib>
 
 #include "common/common_types.h"
 
 namespace Vulkan {
 
-constexpr bool CanDiscardPendingDraw(bool native, bool depth_enabled, u32 index_count,
+inline bool CanDiscardPendingDraw(bool native, bool depth_enabled, u32 index_count,
                                     u32 vertex_count) {
     // Native draws can produce persistent resources, even with depth enabled.
+    // EDEN_NX2_ASYNC_SKIP=1 (from selevet-eglantine) skips the small ones anyway while their
+    // pipeline builds: fewer stalls on new scenery, at the risk of missing effects.
     if (native) {
-        return false;
+        static const bool skip_native = [] {
+            const char* value = std::getenv("EDEN_NX2_ASYNC_SKIP");
+            return value != nullptr && value[0] == '1';
+        }();
+        return skip_native && (index_count > 6 && vertex_count > 6);
     }
     // Preserve the legacy async-shader heuristic.
     return depth_enabled || (index_count > 6 && vertex_count > 6);
