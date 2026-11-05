@@ -615,6 +615,11 @@ struct Values {
     SwitchableSetting<bool> mkw_30fps{linkage, false, "mkw_30fps", Category::RendererAdvanced};
     SwitchableSetting<bool> mkw_dynamic_fps{linkage, false, "mkw_dynamic_fps",
                                             Category::RendererAdvanced};
+    // Donkey Kong Bananza: the game times its own frames (VRR reported in loader/nso.cpp, presents
+    // paced to every vblank in nx2_gsv.h), so its speed holds when the frame rate drops. From
+    // ZendNevs's Eglantine fork (v2.0.5).
+    SwitchableSetting<bool> dk_dynamic_fps{linkage, true, "dk_dynamic_fps",
+                                           Category::RendererAdvanced};
 
     SwitchableSetting<bool> use_reactive_flushing{linkage,
 #ifdef __ANDROID__

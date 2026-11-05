@@ -295,6 +295,10 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
            tr("Lets the game adjust between 30 and 60 FPS using whole-frame timing to maintain "
               "normal game speed. Takes effect after restarting the game and takes precedence over "
               "the 30 FPS mode."));
+    INSERT(Settings, dk_dynamic_fps, tr("Donkey Kong Bananza: dynamic FPS (experimental)"),
+           tr("The game times its own frames, so its speed holds when the frame rate drops, and "
+              "it is never held at 20 or 30 fps. It never runs faster than 60.\nTakes effect at "
+              "the next game launch."));
     INSERT(Settings, barrier_feedback_loops, tr("Barrier feedback loops"),
            tr("Improves rendering of transparency effects in specific games."));
     INSERT(Settings, enable_buffer_history, tr("Enable buffer history"),
