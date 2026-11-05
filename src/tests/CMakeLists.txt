@@ -32,6 +32,7 @@ add_executable(tests
     video_core/vertex_repack.cpp
     video_core/query_copy.cpp
     video_core/ampere_lowering.cpp
+    video_core/texture_depth_float.cpp
     video_core/ampere_geometry.cpp
     video_core/ampere_i2f.cpp
     video_core/ampere_returns.cpp
