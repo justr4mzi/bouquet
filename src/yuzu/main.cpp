@@ -35,6 +35,7 @@
 
 #ifdef _WIN32
 #include <QScreen>
+#include <windows.h>
 
 static void OverrideWindowsFont() {
     // Qt5 chooses these fonts on Windows and they have fairly ugly alphanumeric/cyrillic characters
@@ -163,6 +164,13 @@ static void LoadNx2Switches(const char* argv0) {
 
 int main(int argc, char* argv[]) {
     LoadNx2Switches(argv[0]);
+#ifdef _WIN32
+    // Runs the process at high priority (from selevet-eglantine). EDEN_NX2_HIGH_PRIORITY=0 keeps
+    // it at normal.
+    if (const char* value = std::getenv("EDEN_NX2_HIGH_PRIORITY"); value == nullptr || value[0] != '0') {
+        SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
+    }
+#endif
 #if YUZU_ROOM
     bool launch_room = false;
     for (int i = 1; i < argc; i++) {
