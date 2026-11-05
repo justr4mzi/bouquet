@@ -290,6 +290,8 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra
 
 RasterizerVulkan::~RasterizerVulkan() {
     VideoCommon::GpuSplit::Get().SetIdleHook(nullptr, nullptr);
+    // The final submit invalidates the tracked flags, which live in a channel that is gone by now.
+    state_tracker.DetachChannel();
     scheduler.WaitWorker();
     scheduler.Finish();
 }
