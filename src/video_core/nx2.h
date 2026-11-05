@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstdlib>
 #include <functional>
 #include <map>
 #include <mutex>
@@ -302,6 +303,16 @@ inline void Nx2SparseMarkWritten(u64 gpu_address, u64 size) {
 }
 
 /// True when [gpu_address, +size) lies in one sparse region and none of it has been written.
+/// Whether acquires a release queued for the split's back meets skip the drain
+/// (GpuSplit::NoteQueuedRelease). EDEN_NX2_ACQUIRE_QUEUED=0 turns it off. From selevet-eglantine.
+[[nodiscard]] inline bool Nx2AcquireQueuedEnabled() {
+    static const bool enabled = [] {
+        const char* value = std::getenv("EDEN_NX2_ACQUIRE_QUEUED");
+        return value == nullptr || value[0] != '0';
+    }();
+    return enabled;
+}
+
 inline bool Nx2SparseUnwritten(u64 gpu_address, u64 size) {
     if (size == 0 || gpu_address + size <= g_nx2_sparse_low.load(std::memory_order_relaxed) ||
         gpu_address >= g_nx2_sparse_high.load(std::memory_order_relaxed)) [[likely]] {
