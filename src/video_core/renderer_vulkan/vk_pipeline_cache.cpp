@@ -383,6 +383,7 @@ struct DeferredStages {
     std::array<Shader::IR::Program, Maxwell::MaxShaderProgram> programs;
     std::array<std::optional<Shader::RuntimeInfo>, Maxwell::MaxShaderStage> runtime_infos;
     std::array<std::vector<u32>, Maxwell::MaxShaderStage> reference_spirv;
+    std::array<std::optional<Shader::Profile>, Maxwell::MaxShaderStage> profiles;
 };
 
 size_t GetTotalPipelineWorkers() {
@@ -1347,6 +1348,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
     std::array<const Shader::Info*, Maxwell::MaxShaderStage> infos{};
     std::array<vk::ShaderModule, Maxwell::MaxShaderStage> modules;
     std::array<std::optional<Shader::RuntimeInfo>, Maxwell::MaxShaderStage> deferred_runtime_infos;
+    std::array<std::optional<Shader::Profile>, Maxwell::MaxShaderStage> deferred_profiles;
     std::array<std::vector<u32>, Maxwell::MaxShaderStage> reference_spirv;
 
     const Shader::IR::Program* previous_stage{};
@@ -1366,14 +1368,20 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
 
         const auto runtime_info{MakeRuntimeInfo(programs, key, program, previous_stage, device)};
         ConvertLegacyToGeneric(program, runtime_info);
+        // From Orchid (after leadaenima/Lichii): on AMD graphics stages that can require 32-lane
+        // subgroups, dynamic-lane shuffles are emitted as a 32-lane broadcast loop.
+        Shader::Profile stage_profile{profile};
+        stage_profile.has_broken_spirv_dynamic_subgroup_shuffle =
+            device.NeedsGraphicsSubgroupShuffleWorkaround(MaxwellToVK::ShaderStage(program.stage));
         if (emit_pools) {
             deferred_runtime_infos[stage_index] = runtime_info;
+            deferred_profiles[stage_index] = stage_profile;
             if (VideoCommon::Nx2Perf::Verify()) {
-                reference_spirv[stage_index] = EmitSPIRV(profile, runtime_info, program, binding);
+                reference_spirv[stage_index] = EmitSPIRV(stage_profile, runtime_info, program, binding);
             }
         } else {
             const auto begin = std::chrono::steady_clock::now();
-            modules[stage_index] = EmitShaderModule(device, profile, runtime_info, program, binding,
+            modules[stage_index] = EmitShaderModule(device, stage_profile, runtime_info, program, binding,
                                                    key.unique_hashes[index], stage_index);
             if (build_in_parallel) {
                 AddRuntimeSpirvTime(0, begin);
@@ -1389,6 +1397,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
         job->programs = std::move(programs);
         job->runtime_infos = std::move(deferred_runtime_infos);
         job->reference_spirv = std::move(reference_spirv);
+        job->profiles = std::move(deferred_profiles);
         for (size_t stage = 0; stage < infos.size(); ++stage) {
             if (infos[stage]) {
                 infos[stage] = &job->programs[stage + 1].info;
@@ -1401,7 +1410,9 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
             for (size_t stage = 0; stage < stage_modules.size(); ++stage) {
                 if (job->runtime_infos[stage]) {
                     stage_modules[stage] =
-                        EmitShaderModule(device, profile, *job->runtime_infos[stage],
+                        EmitShaderModule(device,
+                                         job->profiles[stage] ? *job->profiles[stage] : profile,
+                                         *job->runtime_infos[stage],
                                          job->programs[stage + 1], stage_binding,
                                          hashes[stage + 1], stage, job->reference_spirv[stage]);
                 }
