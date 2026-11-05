@@ -67,12 +67,28 @@ void DrainBack() {
 // after it runs on the back after everything queued before it anyway. Semaphores here count up,
 // so a met value is not taken back by a queued release. EDEN_NX2_ACQUIRE_PEEK=0 always drains.
 // From sylvieistaken/selevet-eglantine.
+// Donkey Kong Bananza ran slower with it (monteger8/Eglantine-DKB measured the back idle 190 ms a
+// second against 80): off there unless EDEN_NX2_ACQUIRE_PEEK=1.
 bool PeekAcquire() {
-    static const bool enabled = [] {
+    static const int forced = [] {
         const char* value = std::getenv("EDEN_NX2_ACQUIRE_PEEK");
-        return value == nullptr || value[0] != '0';
+        return value == nullptr ? -1 : value[0] != '0' ? 1 : 0;
     }();
-    return enabled && VideoCommon::GpuSplit::Get().Active();
+    if (forced == 0 || !VideoCommon::GpuSplit::Get().Active()) {
+        return false;
+    }
+    if (forced == 1) {
+        return true;
+    }
+    constexpr u64 DonkeyKongBananzaProgramId = 0x040074A01BF12000ULL;
+    static std::atomic<u64> cached_program{~u64{0}};
+    static std::atomic<bool> cached_result{true};
+    const u64 program = Settings::GetCurrentProgramID();
+    if (cached_program.load(std::memory_order_relaxed) != program) {
+        cached_result.store(program != DonkeyKongBananzaProgramId, std::memory_order_relaxed);
+        cached_program.store(program, std::memory_order_relaxed);
+    }
+    return cached_result.load(std::memory_order_relaxed);
 }
 
 void MarkSemaphorePage(DmaPusher& dma_pusher, GPUVAddr address) {
