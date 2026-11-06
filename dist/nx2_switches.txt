@@ -53,3 +53,9 @@ EDEN_NX2_FENCE_BATCH=1
 
 # Force Mario Kart World swap interval (default is 1 to prevent 30 fps cap when dynamic FPS is off).
 #EDEN_NX2_MKW_SWAP_INTERVAL=2
+
+# Pin split GPU front/back threads to dedicated physical cores (default on for 6+ physical cores; set to 0 to disable).
+#EDEN_NX2_PIN_THREADS=0
+
+# Spin briefly in microseconds before parking Switch 2 guest CPU threads (default 50; set to 0 to disable).
+#EDEN_NX2_IDLE_SPIN_US=50
