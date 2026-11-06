@@ -141,6 +141,8 @@ void GpuSplit::Stop() {
     write_position = 0;
     last_writer_position = 0;
     last_sync_position = 0;
+    last_release_position = 0;
+    sem_write_positions.fill(0);
     published_local = 0;
     consumed_cache = 0;
     publish_every = PublishEvery;
@@ -226,6 +228,11 @@ bool GpuSplit::WaitForWriters() {
 
 bool GpuSplit::WaitForSync() {
     return WaitFor(std::min(last_sync_position, write_position), DrainSite::ListSync);
+}
+
+bool GpuSplit::WaitForSemaphore(u64 address) {
+    return WaitFor(std::min(sem_write_positions[SemSlot(address)], write_position),
+                   DrainSite::Acquire);
 }
 
 bool GpuSplit::WaitFor(u64 target, DrainSite site) {

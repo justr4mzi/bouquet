@@ -152,9 +152,28 @@ bool Puller::CanResumeAcquire(DmaPusher& dma_pusher) {
          pending_acquire->Matches(dma_pusher.memory_manager.Read<u32>(pending_acquire->address)))) {
         return true;
     }
+    static const bool sem_slot_wait = [] {
+        const char* value = std::getenv("EDEN_NX2_SEM_SLOT_WAIT");
+        return value == nullptr || value[0] != '0';
+    }();
     // The release may still be queued for the split GPU thread's back half (and the caches
-    // ReadSemaphoreWord asks are its state).
-    DrainBack();
+    // ReadSemaphoreWord asks are its state). Wait only up to the last semaphore write sent to
+    // this address slot when the word is not in the buffer cache.
+    auto& split = VideoCommon::GpuSplit::Get();
+    const auto device = dma_pusher.memory_manager.GpuToCpuAddress(pending_acquire->address);
+    const bool cache_dirty =
+        device && dma_pusher.rasterizer->MustFlushRegion(*device, sizeof(u32),
+                                                         VideoCommon::CacheType::BufferCache);
+    if (sem_slot_wait && !cache_dirty &&
+        split.LastReleasePosition() <= pending_acquire->last_checked_release) {
+        return false;
+    }
+    if (sem_slot_wait && !cache_dirty) {
+        split.WaitForSemaphore(pending_acquire->address);
+    } else {
+        DrainBack();
+    }
+    pending_acquire->last_checked_release = split.LastReleasePosition();
     const u32 current = ReadSemaphoreWord(dma_pusher, pending_acquire->address);
     if (Nx2SemaphoreWaiters::Get().Latched(this)) {
         if (static std::atomic<u32> rescued{};
@@ -302,6 +321,7 @@ void Puller::ProcessSemaphoreTriggerMethod(DmaPusher& dma_pusher) {
         OnBack([rasterizer = dma_pusher.rasterizer, sequence_address, properties, payload] {
             rasterizer->Query(sequence_address, VideoCommon::QueryType::Payload, properties, payload, 0);
         });
+        VideoCommon::GpuSplit::Get().NoteSemaphoreWrite(sequence_address);
         NoteQueuedRelease(dma_pusher, sequence_address, payload);
     } else if (g_nx2_ampere) {
         // Switch 2 waits on semaphores the CPU (or another channel) releases, e.g. once it has
@@ -339,6 +359,7 @@ void Puller::ProcessSemaphoreTriggerMethod(DmaPusher& dma_pusher) {
         }
         ReleaseFences(dma_pusher);
         if (!waiters.Latched(this) && !acquire.Matches(ReadSemaphoreWord(dma_pusher, acquire.address))) {
+            acquire.last_checked_release = VideoCommon::GpuSplit::Get().LastReleasePosition();
             pending_acquire = acquire;
             dma_pusher.suspensions.fetch_add(1, std::memory_order_release);
             VideoCommon::Nx2Profile::Add(VideoCommon::Nx2Profile::Counter::AcquireWaits, 1);
@@ -385,6 +406,7 @@ void Puller::ProcessSemaphoreRelease(DmaPusher& dma_pusher) {
         rasterizer->Query(sequence_address, VideoCommon::QueryType::Payload,
                           VideoCommon::QueryPropertiesFlags::IsAFence, payload, 0);
     });
+    VideoCommon::GpuSplit::Get().NoteSemaphoreWrite(sequence_address);
     NoteQueuedRelease(dma_pusher, sequence_address, payload);
 }
 
@@ -417,6 +439,7 @@ void Puller::ProcessSemaphoreExecute(DmaPusher& dma_pusher, u32 argument) {
             rasterizer->Query(address, VideoCommon::QueryType::Payload,
                               VideoCommon::QueryPropertiesFlags::IsAFence, payload, 0);
         });
+        VideoCommon::GpuSplit::Get().NoteSemaphoreWrite(address);
         NoteQueuedRelease(dma_pusher, address, payload);
         return;
     }

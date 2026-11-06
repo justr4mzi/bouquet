@@ -1191,6 +1191,7 @@ void Maxwell3D::FrontWrite(VideoCommon::GpuSplit& split, FrontState& fs, u32 met
         if (const auto device = memory_manager.GpuToCpuAddress(report_address)) {
             Nx2MarkSemaphorePage(*device);
         }
+        split.NoteSemaphoreWrite(report_address);
     }
     // A payload release (ProcessQueryGet) is now queued: acquires it meets need not drain.
     if (method == MAXWELL3D_REG_INDEX(report_semaphore.query) && Nx2AcquireQueuedEnabled()) {

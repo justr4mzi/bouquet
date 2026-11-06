@@ -177,6 +177,18 @@ public:
     /// of it was still queued.
     bool WaitForSync();
 
+    /// A puller or 3D semaphore release to `address` was just sent: records its position for its
+    /// address slot so a suspended channel polling `address` waits only up to the last release on
+    /// that slot instead of draining later draw work.
+    void NoteSemaphoreWrite(u64 address) {
+        sem_write_positions[SemSlot(address)] = write_position;
+        last_release_position = write_position;
+    }
+    [[nodiscard]] u64 LastReleasePosition() const {
+        return last_release_position;
+    }
+    bool WaitForSemaphore(u64 address);
+
     /// Semaphore releases the front sent that the back has not executed yet (front thread only).
     /// An acquire one of them meets needs no drain: the back runs the release, then the work after
     /// the acquire, in order, and the host queue keeps that order. Call right after sending one.
@@ -223,6 +235,11 @@ private:
     static constexpr size_t RingMask = RingWords - 1;
     static constexpr u32 MaxMultiWords = 8192;
     static constexpr size_t PublishEvery = 256;
+    static constexpr size_t SemSlotMask = 63;
+
+    static size_t SemSlot(u64 address) {
+        return ((address >> 2) ^ (address >> 10)) & SemSlotMask;
+    }
 
     template <typename Func>
     static void CallThunk(const u64* payload) {
@@ -282,6 +299,8 @@ private:
     u64 write_position{};
     u64 last_writer_position{};
     u64 last_sync_position{};
+    u64 last_release_position{};
+    std::array<u64, 64> sem_write_positions{};
     u64 published_local{};
     u64 consumed_cache{};
     /// Words between publishes: small right after a drain, while the back has nothing to do.
