@@ -833,8 +833,22 @@ void BufferCache<P>::BindComputeStorageBuffer(size_t ssbo_index, u32 cbuf_index,
         }
         ssbo_addr = holder + indirect_offset;
     }
+    // Native compute pointers sized by their mapping (up to 8 MiB) instead of the word after
+    // them: Fortune's Weave needs it (its DLSS input features), but binding, syncing and walking
+    // the mapping of 8 MiB per buffer per dispatch held Ocarina of Time's GPU thread to ~15 fps
+    // and caused 7.6 GiB/s of CPU readbacks in Mario Kart World.
+    // EDEN_NX2_NATIVE_SSBO_SIZE=1 uses it for every title, =0 for none.
+    static const int native_size_env = [] {
+        const char* value = std::getenv("EDEN_NX2_NATIVE_SSBO_SIZE");
+        return value == nullptr ? -1 : (value[0] == '1' ? 1 : 0);
+    }();
+    constexpr u64 FortunesWeaveProgramId = 0x04007EF01F8AE000ULL;
+    const bool native_size = kepler_compute->IsNativeMode() &&
+                             (native_size_env == 1 ||
+                              (native_size_env == -1 &&
+                               (program_id == FortunesWeaveProgramId || kepler_compute->IsDlssDispatch())));
     channel_state->compute_storage_buffers[ssbo_index] = StorageBufferBinding(
-        ssbo_addr, cbuf_index, is_written, kepler_compute->IsNativeMode(), indirect_offset != ~0U);
+        ssbo_addr, cbuf_index, is_written, native_size, indirect_offset != ~0U);
     if (indirect_offset != ~0U) {
         TraceTablePointer(true, 0, ssbo_index, cbuf_index, cbuf_offset, indirect_offset, holder,
                           channel_state->compute_storage_buffers[ssbo_index]);
