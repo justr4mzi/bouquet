@@ -14,7 +14,10 @@ endfunction()
 
 get_timestamp(BUILD_DATE)
 
-if (DEFINED GIT_RELEASE)
+if (LICHII_BUILD_TAG MATCHES "^build-[0-9]+$")
+    set(BUILD_VERSION "${LICHII_BUILD_TAG}")
+    set(IS_DEV_BUILD false)
+elseif (DEFINED GIT_RELEASE)
     set(BUILD_VERSION "${GIT_TAG}")
     set(GIT_REFSPEC "${GIT_RELEASE}")
     set(IS_DEV_BUILD false)
@@ -34,22 +37,15 @@ set(GIT_DESC ${BUILD_VERSION})
 
 # Generate cpp with Git revision from template
 
-# TODO(crueter): Stable releases feed.
-set(BUILD_AUTO_UPDATE_STABLE_REPO "eden-emu/eden")
-set(BUILD_AUTO_UPDATE_STABLE_API "git.eden-emu.dev")
-set(BUILD_AUTO_UPDATE_STABLE_API_PATH "/api/v1/repos/")
-
-set(BUILD_AUTO_UPDATE_API_PATH "/latest/release.json")
+set(BUILD_AUTO_UPDATE_STABLE_REPO "justr4mzi/hortensia")
+set(BUILD_AUTO_UPDATE_STABLE_API "api.github.com")
+set(BUILD_AUTO_UPDATE_API_PATH "/repos/justr4mzi/hortensia/releases?per_page=100")
+set(BUILD_AUTO_UPDATE_WEBSITE "https://github.com")
+set(BUILD_AUTO_UPDATE_REPO "justr4mzi/hortensia")
 if (NIGHTLY_BUILD)
-    set(BUILD_AUTO_UPDATE_WEBSITE "https://git.eden-emu.dev")
-    set(BUILD_AUTO_UPDATE_API "nightly.eden-emu.dev")
-    set(BUILD_AUTO_UPDATE_REPO "eden-ci/nightly")
-    set(REPO_NAME "Eglantine Nightly")
+    set(REPO_NAME "Hortensia Nightly")
 else()
-    set(BUILD_AUTO_UPDATE_WEBSITE "https://git.eden-emu.dev")
-    set(BUILD_AUTO_UPDATE_API "stable.eden-emu.dev")
-    set(BUILD_AUTO_UPDATE_REPO "eden-emu/eden")
-    set(REPO_NAME "Eglantine")
+    set(REPO_NAME "Hortensia")
 endif()
 
 set(BUILD_ID ${GIT_REFSPEC})
