@@ -125,7 +125,7 @@ Bouquet only gathers other people's work. All credit goes to the developers of
 [Eglantine-DKB](https://github.com/monteger8/Eglantine-DKB),
 [Eden](https://git.eden-emu.dev/eden-emu/eden) and yuzu. Please don't report Bouquet bugs to them.
 
-Bouquet is put together by [justr4mzi](https://github.com/justr4mzi) with the help of Claude (AI).
+Bouquet is put together by [justr4mzi](https://github.com/justr4mzi).
 
 ## License
 
