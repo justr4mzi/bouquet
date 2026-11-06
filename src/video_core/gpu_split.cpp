@@ -204,12 +204,14 @@ void GpuSplit::Drain(DrainSite site) {
     if (consumed_cache == write_position) {
         return;
     }
+    wait_target.store(write_position, std::memory_order_seq_cst);
     Publish();
     Nx2Profile::Scope scope{Nx2Profile::Zone::SplitDrain};
     const u64 start = Nx2Profile::Enabled() ? Nx2Profile::Ticks() : 0;
     for (u32 spins = 0;; ++spins) {
         consumed_cache = consumed.load(std::memory_order_acquire);
         if (consumed_cache == write_position) {
+            wait_target.store(~u64{0}, std::memory_order_relaxed);
             publish_every = 8;
             Nx2Profile::AddDrain(site, start);
             return;
@@ -247,7 +249,14 @@ bool GpuSplit::WaitFor(u64 target, DrainSite site) {
 }
 
 void GpuSplit::Backoff(u32 spins, u64 target) {
-    if (spins < 16384) {
+    // Short spin for nearly-done back work, then sleep on front_wake; BackLoop wakes as soon as
+    // `consumed` passes `wait_target`, so the front does not burn CPU while the back records draws.
+    static const u32 max_spins = [] {
+        const char* value = std::getenv("EDEN_NX2_WAIT_SPINS");
+        return value != nullptr ? static_cast<u32>(std::max(0L, std::strtol(value, nullptr, 10)))
+                                : 256U;
+    }();
+    if (spins < max_spins) {
         Pause();
         return;
     }
@@ -422,8 +431,15 @@ void GpuSplit::BackLoop(std::stop_token stop_token) {
         u64 available = published.load(std::memory_order_acquire);
         if (available == read_position) {
             Nx2Profile::Scope scope{Nx2Profile::Zone::SplitWait};
-            // The front usually sends more within microseconds: spin briefly before sleeping.
-            for (u32 spins = 0; spins < 8192 && available == read_position &&
+            // The front usually sends more within microseconds: spin briefly before running the
+            // idle hook (which submits deferred Vulkan work) and sleeping.
+            static const u32 max_back_spins = [] {
+                const char* value = std::getenv("EDEN_NX2_BACK_SPIN");
+                return value != nullptr
+                           ? static_cast<u32>(std::max(0L, std::strtol(value, nullptr, 10)))
+                           : 512U;
+            }();
+            for (u32 spins = 0; spins < max_back_spins && available == read_position &&
                                 !hook_requested.load(std::memory_order_relaxed);
                  ++spins) {
                 Pause();
@@ -462,12 +478,15 @@ void GpuSplit::BackLoop(std::stop_token stop_token) {
             }
             // Hand ring space back now and then while working through a long batch, and at once
             // when the front waits for this position (WaitForWriters).
-            if ((read_position - last_store >= 4096 ||
-                 read_position >= wait_target.load(std::memory_order_relaxed)) &&
+            const bool target_reached =
+                read_position >= wait_target.load(std::memory_order_relaxed);
+            if ((read_position - last_store >= 4096 || target_reached) &&
                 read_position != available) {
                 consumed.store(read_position, std::memory_order_seq_cst);
                 last_store = read_position;
-                NotifyFront();
+                if (target_reached) {
+                    NotifyFront();
+                }
             }
         }
         consumed.store(read_position, std::memory_order_seq_cst);
