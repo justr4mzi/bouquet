@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <cstdlib>
+#include <chrono>
+#include <thread>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -162,8 +164,33 @@ static void LoadNx2Switches(const char* argv0) {
     }
 }
 
+#ifdef BOUQUET_PGO_GENERATE
+// PGO training build: write the profile next to bouquet.exe every 30 seconds, so a crash or a
+// forced close keeps what was played. Each process overwrites its own file with its counters so
+// far; tools/pgo/merge-profile.bat merges every session into bouquet.profdata.
+extern "C" int __llvm_profile_write_file(void);
+extern "C" void __llvm_profile_set_filename(const char*);
+static void StartProfileWriter(const char* argv0) {
+    static std::string pattern;
+    std::error_code error;
+    const auto dir = std::filesystem::absolute(argv0, error).parent_path() / "pgo";
+    std::filesystem::create_directories(dir, error);
+    pattern = (dir / "bouquet-%p.profraw").string();
+    __llvm_profile_set_filename(pattern.c_str());
+    std::thread{[] {
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::seconds{30});
+            __llvm_profile_write_file();
+        }
+    }}.detach();
+}
+#endif
+
 int main(int argc, char* argv[]) {
     LoadNx2Switches(argv[0]);
+#ifdef BOUQUET_PGO_GENERATE
+    StartProfileWriter(argv[0]);
+#endif
 #ifdef _WIN32
     // Runs the process at high priority (from selevet-eglantine). EDEN_NX2_HIGH_PRIORITY=0 keeps
     // it at normal.

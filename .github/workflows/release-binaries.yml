@@ -80,6 +80,13 @@ jobs:
             mingw: true
             march: x86-64-v3
             lto: true
+          # PGO training build: instrumented, writes .profraw files while you play.
+          - platform: windows-x86_64-pgo-train
+            runner: windows-2022
+            pgo: true
+            mingw: true
+            march: x86-64-v3
+            train: true
           - platform: linux-aarch64-pgo
             runner: ubuntu-24.04-arm
             pgo: true
@@ -348,6 +355,9 @@ jobs:
           set -euo pipefail
           profile="-fprofile-use=$(cygpath -m "$PWD/eglantine.profdata") -Wno-backend-plugin \
             -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date"
+          if [ '${{ matrix.train }}' = 'true' ]; then
+            profile="-fprofile-generate -DBOUQUET_PGO_GENERATE"
+          fi
           if [ -n "${{ matrix.march }}" ]; then profile="$profile -march=${{ matrix.march }}"; fi
           # ThinLTO, as in Selevet's tuned build, with LLVM's archiver for the bitcode objects.
           lto=""
@@ -377,7 +387,7 @@ jobs:
             -DUSE_CCACHE=ON \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
-            "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld $lto" \
+            "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld $lto ${{ matrix.train && '-fprofile-generate' || '' }}" \
             $lto_tools \
             "-DCMAKE_C_FLAGS=$profile $lto" \
             "-DCMAKE_CXX_FLAGS=$profile $lto"
@@ -521,6 +531,12 @@ jobs:
           find . -name '*.dll' | while read -r dll; do
             deps "$dll"
           done
+          if [ '${{ matrix.train }}' = 'true' ]; then
+            # The merge tool from the same LLVM that will read the profile.
+            cp "$(command -v llvm-profdata)" .
+            deps llvm-profdata.exe
+            cp "$GITHUB_WORKSPACE/tools/pgo/merge-profile.bat" "$GITHUB_WORKSPACE/tools/pgo/README-PGO.txt" .
+          fi
 
       # A self-contained app bundle: macdeployqt copies Qt and every other Homebrew library both
       # programs load into the bundle, then the leftover Homebrew search paths are removed so a
@@ -675,6 +691,8 @@ jobs:
           rename bouquet-linux-aarch64-pgo.AppImage Bouquet-Linux-ARM.AppImage
           rename bouquet-macos-arm64.zip Bouquet-macOS.zip
           rm -f dist/*.tar.gz
+          # The PGO training build stays a workflow artifact, not a release file.
+          rm -f dist/bouquet-windows-x86_64-pgo-train.zip
           ls -la dist
 
       - name: Create release
