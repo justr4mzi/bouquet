@@ -77,11 +77,16 @@ EDEN_NX2_FENCE_BATCH=1
 # Selevet: skip compute shaders by hash (each new compute shader is logged as "Nx2 first dispatch");
 # put the last hashes before a "Device loss" here, comma separated, to work around a GPU hang
 #EDEN_NX2_SKIP_COMPUTE=
-# Lichii (zortos293), tuned by Selevet: Ocarina of Time fog/exposure/bloom reduction
-#EDEN_NX2_OOT_VISUAL_WORKAROUND=1
-#EDEN_NX2_OOT_FOG_SCALE=0.35
-#EDEN_NX2_OOT_EXPOSURE_SCALE=0.75
-#EDEN_NX2_OOT_BLOOM_EXP_SCALE=1.2
+
+# --- On in Bouquet (Ocarina of Time only), as in Selevet's recommended file ---
+# Lichii (zortos293), tuned by Selevet: Ocarina of Time fog/exposure/bloom reduction (the haze and
+# glare are not fixed at the source yet). Delete these lines to see the game unmodified.
+EDEN_NX2_OOT_VISUAL_WORKAROUND=1
+EDEN_NX2_OOT_FOG_SCALE=0.35
+EDEN_NX2_OOT_EXPOSURE_SCALE=0.75
+EDEN_NX2_OOT_BLOOM_EXP_SCALE=1.2
+
+# --- Opt-in, continued ---
 # Lichii (zortos293) "K4": report GPU time divided by N to Ampere games (Ocarina's dynamic resolution)
 #EDEN_NX2_GPU_TIME_DIV=4
 # Lichii (zortos293) prototype: record render passes in parallel
