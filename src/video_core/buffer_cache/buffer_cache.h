@@ -2410,7 +2410,6 @@ template <class P>
 BufferId BufferCache<P>::CreateBuffer(DAddr device_addr, u32 wanted_size,
                                       bool sparse_compatible) {
     // The synchronized-range tables hold Buffer pointers and ids that this may move or reuse.
-    nx2_synced_ranges.fill({});
     nx2_synced_vertex_buffers.fill({});
     DAddr device_addr_end = Common::AlignUp(device_addr + wanted_size, CACHING_PAGESIZE);
     device_addr = Common::AlignDown(device_addr, CACHING_PAGESIZE);
@@ -2787,7 +2786,6 @@ void BufferCache<P>::DownloadBufferMemory(Buffer& buffer, DAddr device_addr, u64
 
 template <class P>
 void BufferCache<P>::DeleteBuffer(BufferId buffer_id, bool do_not_mark) {
-    nx2_synced_ranges.fill({});
     nx2_synced_vertex_buffers.fill({});
     if constexpr (requires { runtime.OnBufferDeleted(slot_buffers[buffer_id]); }) {
         runtime.OnBufferDeleted(slot_buffers[buffer_id]);
