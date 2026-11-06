@@ -2272,6 +2272,8 @@ void RasterizerVulkan::FlushWork() {
         static const std::optional<u32> configured_budget = []() -> std::optional<u32> {
             if (const char* value = std::getenv("EDEN_NX2_FLUSH_DRAWS")) {
                 if (const auto parsed = SubmissionPolicy::ParseBudget(value)) {
+                    LOG_INFO(Render_Vulkan,
+                             "FlushWork: flushing every {} draws (EDEN_NX2_FLUSH_DRAWS)", *parsed);
                     return parsed;
                 }
                 LOG_WARNING(Render_Vulkan,
