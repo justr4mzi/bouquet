@@ -50,35 +50,44 @@ switched off (see [Every switch Bouquet adds](#every-switch-bouquet-adds)).
 ## Download
 
 Get the latest build from the **[Releases page](https://github.com/justr4mzi/bouquet/releases)**.
+There is **one file per system**:
 
-| Your computer | File to download |
+| Your computer | Download |
 | --- | --- |
-| Windows, Ryzen or Intel 4th gen and newer (almost every PC from 2014 on) | `bouquet-windows-x86_64-pgo-avx2.zip` (fastest) |
-| Windows, older CPU | `bouquet-windows-x86_64-pgo.zip` |
-| Windows, graphical problems with the builds above | `bouquet-windows-x86_64.zip` (MSVC) |
-| Linux x86_64 | `bouquet-linux-x86_64-pgo.AppImage` |
-| Linux ARM64 | `bouquet-linux-aarch64-pgo.AppImage` |
-| Mac with Apple Silicon (M1 and newer) | `bouquet-macos-arm64.zip` |
+| **Windows** (almost every PC) | **`Bouquet-Windows.zip`** |
+| Windows, only if Bouquet doesn't start or shows graphical errors | `Bouquet-Windows-Compatibility.zip` |
+| **Linux** | **`Bouquet-Linux.AppImage`** (`Bouquet-Linux-ARM.AppImage` on ARM) |
+| **Mac** with Apple Silicon (M1 or newer) | **`Bouquet-macOS.zip`** |
 
-- **PGO** builds are compiled with clang and a performance profile (`eglantine.profdata`), the
-  way Eden and Lichii build theirs.
-- The **AVX2** build also targets modern CPUs (`-march=x86-64-v3`), like Selevet's tuned build.
+<details><summary>What's the difference between the two Windows files?</summary>
+
+- `Bouquet-Windows.zip` is compiled with clang, a performance profile (PGO) and instructions of
+  CPUs from 2013 on (AVX2, x86-64-v3), like Selevet's tuned build: the fastest.
+- `Bouquet-Windows-Compatibility.zip` is compiled with Microsoft's compiler for any 64-bit CPU.
+  Use it only if the first one doesn't start (very old CPU) or draws something wrong.
+
+</details>
 
 ## Setting it up
 
-1. **Extract** the zip anywhere (for example `C:\Games\Bouquet`) and run `bouquet.exe`.
-2. **Keys and firmware.** Bouquet keeps its own data folder, so it never touches the config of
+1. **Extract** the zip into a folder (right-click → *Extract All*), for example `C:\Games\Bouquet`,
+   and double-click `bouquet.exe`. If Windows says it protected your PC, click **More info →
+   Run anyway** (Bouquet isn't signed).
+   - Linux: `chmod +x Bouquet-Linux.AppImage`, then run it.
+   - Mac: open the zip, drag Bouquet to Applications, right-click it → **Open** the first time.
+2. At the first start, answer **Yes** to **optimized settings** (see below).
+3. **Keys and firmware.** Bouquet keeps its own data folder, so it never touches the config of
    your other emulators:
-   - Windows: `%APPDATA%\bouquet`
+   - Windows: `%APPDATA%\bouquet` (type it in the Explorer address bar)
    - Linux: `~/.local/share/bouquet` and `~/.config/bouquet`
    - macOS: `~/Library/Application Support/bouquet`
 
-   Copy your `keys` folder there and install your firmware (from the **File** menu), exactly as
-   you did for Eglantine, Lichii or Eden.
+   Copy your `keys` folder there and install your firmware from the **File** menu, exactly as you
+   did for Eglantine, Lichii or Eden.
    **Portable mode:** create an empty folder named `user` next to `bouquet.exe` and Bouquet keeps
    everything in it instead.
-3. **Answer the first-start question** about optimized settings (see below). Yes is recommended.
-4. **Add your games folder** (double-click the game list) and launch a game.
+4. **Add your games folder** (double-click the game list) and launch a game. The first launch of
+   each game builds its shaders: it stutters for a few minutes, then gets smooth.
 
 ## Optimized settings per game
 
@@ -94,11 +103,14 @@ Bouquet reads your **graphics card's vendor** from the selected Vulkan device:
   World.
 - **Intel, Apple and Qualcomm** (integrated GPUs): half resolution, BC3-compressed textures.
 
+If a game shows a black screen entering a race or a level with these settings, turn the option
+off for that game (Selevet saw it with memory operation syncs off on an older build).
+
 | Game | What is applied |
 | --- | --- |
-| Mario Kart World | Lichii's recommended settings (Vulkan, GPU accuracy Fast, asynchronous shaders, conservative VRAM, reactive flushing off, FIFO Relaxed VSync, handheld mode, ScaleForce, FXAA), **dynamic FPS on**, ASTC as above |
+| Mario Kart World | Lichii's recommended settings (Vulkan, GPU accuracy Fast, asynchronous shaders, conservative VRAM, reactive flushing off, FIFO Relaxed VSync, handheld mode, ScaleForce, FXAA), **dynamic FPS on**, plus Selevet's tuned settings (CPU and DMA accuracy Unsafe, Immediate GPU fences, memory operation syncs off), ASTC as above |
 | Ocarina of Time | Vulkan, asynchronous shaders (the Max Resolution and Dynamic FPS patches are on anyway) |
-| Donkey Kong Bananza | Vulkan, asynchronous shaders, dynamic FPS |
+| Donkey Kong Bananza | Vulkan, asynchronous shaders, dynamic FPS, plus Orchid's settings measured on AMD: GPU accuracy Fast, reactive flushing off, Boost GPU clock (it then stays at 1080p and mostly 60 fps pacing) |
 | Pokémon Pokopia | Vulkan, asynchronous shaders |
 | Splatoon Raiders | Vulkan, asynchronous shaders |
 
