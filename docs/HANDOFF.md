@@ -122,3 +122,54 @@ its journal entry.
   training build, ThinLTO; renamed Bouquet → Hortensia (logo, data folder, log
   `hortensia_log.txt`, deep violet theme); MKW PGO profile merged for Windows; MKW preset
   aligned with Selevet. PRs #296 (Lichii) and #19 (Selevet). First public release started.
+- **2026-11-06 (Antigravity)** : forks vérifiés : zortos293/Lichii (
+x2), sylvieistaken/selevet-eglantine (main, commit d8f254ea5a « Performance build 9 ») ;
+  intégré :
+  - src/common/game_presets.h : VramUsageMode::Aggressive ajouté au smart preset de Mario Kart World (1d0479d991) ;
+  - Lichii #290 (c9bdbaa38e, Zortos) : common: prevent a lost wake when cancelling worker tasks ;
+  - Lichii #224 (7a281757d, Bruno Silvestre) : ideo_core: opt-in EDEN_NX2_ASYNC_DISCARD to skip native draws with unbuilt pipelines (combiné proprement avec EDEN_NX2_ASYNC_SKIP dans sync_draw_policy.h, documenté dans README.md et dist/nx2_switches.txt) ;
+  - Lichii #314 (588bfa611b, Zortos) : rontend: seed performance settings only for new desktop configs — adapté pour conserver le défaut ScalingFilter::Bilinear de Hortensia au lieu de forcer Fsr3 (les 4 autres seeds GpuAccuracy::Low, NvdecEmulation::Gpu, sync_presentation=true, use_asynchronous_shaders=true sont gardés) ;
+  - Lichii #303 (4c173bb792, Zortos) : qt: add opt-in desktop compatibility reports (nom de build prérempli en Hortensia) ;
+  laissé :
+  - Lichii #287 (26f2e4e347, AppImage switch discovery Linux) et #284 (e219d24c5a, MinGW AV1 ffmpeg) comme demandé ;
+  - Selevet Performance build 9 (d8f254ea5a, non intégré volontairement, analysé ci-dessous) ;
+  build : run 42299447282 lancé sur dev (publish_release=false, en cours) ; release sur main : run 42294127813 en cours (linux-aarch64 et macos-arm64 verts, Windows/Linux x86_64 en cours) ;
+  à faire ensuite : attendre la fin des runs 42294127813 (main) et 42299447282 (dev), faire tester MKW à Ramzi (sans frame gen, mode TV vs portable, Hortensia vs Selevet vs SmileyTatsu build-16) puis décider de la base ;
+  questions pour Ramzi : aucune dans l'immédiat, prêt pour tes retours de test MKW dès que le build finit.
+
+  **Analyse détaillée de Selevet Performance build 9 (d8f254ea5a) vs build 8 (cf792deb77) et vs Hortensia :**
+  1. **Ce que Selevet build 9 ajoute par rapport à build 8 :**
+     - *Traduction Ampere / Shaders OOT (src/shader_recompiler/frontend/ampere/lower_to_maxwell.h, egister_pressure.h, spirv_emit_context.cpp, emit_spirv_*.cpp)* : réessaie la traduction des shaders natifs rejetés (corrige les falaises de Gerudo Valley, terrains et ciel blanc/vert sur AMD) ; alignement des miroirs de registres uniformes avec registres shadowés ; nouvelles formes supportées (EDEN_NX2_F2I_CBUF_MODIFIERS, EDEN_NX2_F2I_EXTENDED, EDEN_NX2_F2I_FORMS, EDEN_NX2_FSEL_MODIFIERS, EDEN_NX2_FSET_UNIFORM, EDEN_NX2_IADD3_CARRY_FORMS, EDEN_NX2_IMAD_WIDE_FORMS, EDEN_NX2_IMNMX_NEGATIVE, EDEN_NX2_LEA_FORMS, EDEN_NX2_LOWER_EXTENDED, EDEN_NX2_MUFU_IMMEDIATE, EDEN_NX2_ULOP3_FORM0, EDEN_NX2_VOTEU_EXTENDED) ; support des mesh shaders en topologie points (emit_spirv_mesh.cpp).
+     - *Cache de pipelines Lichii build-88 (k_pipeline_cache.cpp, k_pipeline_cache_prebuild.h, pipeline_build.h)* : pré-compilation en arrière-plan sur 1–2 threads basse priorité (jusqu'à 256 pipelines), lecture unique des descripteurs de texture par handle à la traduction, attente jusqu'à 3 ms sur un pipeline en cours de build avant de sauter le draw (EDEN_NX2_BUILD_WAITED_PIPELINES), et saut des draws si un pipeline graphique échoue à compiler au lieu de fermer l'émulateur (PR Lichii #142).
+     - *Correctifs AMD / Intel Arc (emit_spirv_atomic.cpp, emit_spirv_tensor.cpp, pipeline_optimization.h, ulkan_device.cpp)* : VK_EXT_shader_atomic_float natif si supporté ; remplacement du réseau d'upscaling OOT (10 programmes tensoriels) par un upscale simple sur AMD et Intel (EDEN_NX2_UPSCALER_STANDIN=1/ , EDEN_NX2_OOT_NETWORK) ; compilation séquentielle des pipelines sur le pilote Windows AMD (k_pipeline_cache.cpp) ; obustBufferAccess gardé actif ; plusieurs correctifs AMD (CAS retry, SSBO 64/128-bit en mots, barrières compute→draw, query reports sur fence) que Hortensia a déjà via Lichii #273/#295 et les 30 commits de chuppatricky.
+     - *Vidéo & Patchs (fmpeg.cpp, 
+x2_video_decoder.cpp, patch_manager.cpp)* : décodage vidéo Switch 2 sur CPU via dav1d multi-thread par défaut (EDEN_NX2_VIDEO_HW=1 pour forcer le GPU) ; patch intégré « Occlusion Off » pour OOT (src/core/file_sys/patch_manager.cpp, de cLohan via sharkiix) ; chevauchement des dispatches compute consécutifs (kepler_compute.cpp).
+     - *Catalogue UI des switches (src/yuzu/configuration/nx2_switch_catalog.cpp)* : 4465 lignes répertoriant 252 interrupteurs EDEN_* dans l'interface Qt.
+  2. **Ce que Selevet a et que Hortensia n'a pas (en particulier MKW et thread GPU split) :**
+     - *Thread GPU split — suivi fin des plages d'écriture et des pages propres (src/video_core/gpu_split.h, gpu_split.cpp, dma_pusher.cpp, 
+x2_clean_pages.h)* :
+       - EDEN_NX2_DMA_RANGES (SetNextWriteRange, WaitForMemoryWritersIn dans gpu_split.* + memory_write_mask dans maxwell_3d.cpp) : les lectures DMA des macros MME n'attendent le thread back que si une écriture en attente (upload de constant buffer, inline data, report) chevauche réellement la plage [begin, end) lue (Hortensia a EDEN_NX2_DMA_DRAIN activé uniquement sur DK Bananza).
+       - EDEN_NX2_LIST_TRUST (dma_pusher.cpp, 
+x2_clean_pages.h) : les command lists sur des pages déjà vues écrites par le CPU (sans compute/copy en attente) ne refont plus WaitForWriters().
+       - EDEN_NX2_LIST_CPU_SYNC (memory_manager.cpp, uffer_cache.h) : quand le CPU réécrit une page de command-list précédemment écrite par le GPU, l'ancienne copie est invalidée immédiatement au lieu d'attendre la prochaine fence.
+       - EDEN_NX2_CMD_BATCH (dma_pusher.cpp) : téléchargement groupé des command-lists écrites par le GPU en un seul wait par lot.
+     - *Thread GPU split — sémaphores et ordonnancement (src/video_core/engines/puller.cpp, gpu_split.h)* :
+       - WaitForSemaphore / sem_write_positions[64] (gpu_split.h, puller.cpp) : dans CanResumeAcquire, si la page du sémaphore n'a pas besoin de flush buffer_cache, attend uniquement la position du dernier release sur le slot de ce sémaphore (WaitForSemaphore) au lieu d'un DrainBack() complet, et mémorise last_checked_release.
+       - QueuedReleaseMeets sur anneau fixe de 64 entrées (queued_releases dans gpu_split.h) utilisé aussi dans ProcessSemaphoreExecute (et option risquée EDEN_NX2_ACQUIRE_TRUST=1).
+       - EDEN_NX2_PIN_FRONT / EDEN_NX2_PIN_BACK (gpu_split.cpp) : épinglage d'affinité CPU des threads front et back sur Windows (SetThreadAffinityMask).
+       - Spin court de WaitFor dans gpu_split.cpp (256 pauses avant ront_wake.wait ciblé sur ead_position >= wait_target, et 512 spins côté BackLoop, contre 16384 / 8192 dans Hortensia).
+     - *Chemin « Fast Draw » et regroupement de draws (src/video_core/nx2_fast_draw.h, 
+x2_draw_runs.h, engines/maxwell_3d.cpp, uffer_cache/buffer_cache.h, enderer_vulkan/vk_rasterizer.cpp)* :
+       - EDEN_NX2_FAST_DRAW (=1 ou =2 avec suivi de Delta), EDEN_NX2_BUFFER_SKIP, EDEN_NX2_INLINE_INVALIDATE, EDEN_NX2_DYNAMIC_SKIP, EDEN_NX2_DRAW_RUNS : saute la re-validation des vertex buffers, des états dynamiques et des invalidations de caches entre draws successifs compatibles (branche ast-draw absente de Hortensia car en conflit avec perf9 de Lichii, où ast_maxwell3d regroupe plutôt les écritures CB dans GpuSplit::Execute).
+     - *Fréquence de soumission et MKW / Présentation (k_rasterizer.cpp, k_scheduler.*, present/frame_gen.cpp, 
+x2_frame_skip.h)* :
+       - EDEN_NX2_FLUSH_DRAWS : envoie le travail au GPU hôte tous les 128 draws (au lieu de 4096 dans Frizti/Lichii) ou selon le seuil configuré.
+       - EDEN_NX2_PRESENT_HZ (limiteur de cadence de présentation pour le patch 30 fps) et EDEN_NX2_VBLANK_ALIGN (alignement vblank 60 Hz).
+       - EDEN_NX2_SHADOW_SKIP=N (
+x2_frame_skip.h, maxwell_3d.cpp) : ne redessine les shadow maps que toutes les N frames (opt-in).
+       - Génération d'images NVIDIA Optical Flow (
+vof, branche d'anormalhorse) en plus de LSFG/FSR3.
+     - *Table de mapping GPU de l'époque build-31 (
+x2_gpu_mapping_table.h / 
+vhost_as_gpu.cpp)* et EDEN_NX2_SPARSE_REMAP (
+x2:gpu 216 désactivé par défaut chez Selevet car 15–20 % plus lent sur RTX 3050).
