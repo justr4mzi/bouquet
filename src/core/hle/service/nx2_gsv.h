@@ -2049,6 +2049,17 @@ private:
         if (mkw_dynamic) {
             swap_interval = 1;
         }
+        // Mario Kart World: default to swap interval 1 (unlocked vblank pacing) unless
+        // EDEN_NX2_MKW_SWAP_INTERVAL=2 is explicitly set, preventing the game from being locked
+        // at 30 fps after 120 presents when dynamic FPS is disabled.
+        static const char* const mkw_swap_env = std::getenv("EDEN_NX2_MKW_SWAP_INTERVAL");
+        if (process != nullptr && process->GetProgramId() == Settings::MarioKartWorldProgramId) {
+            if (mkw_swap_env != nullptr) {
+                swap_interval = static_cast<u32>(std::strtoul(mkw_swap_env, nullptr, 10));
+            } else if (forced_interval == 0) {
+                swap_interval = 1;
+            }
+        }
         // Bananza with dynamic FPS (loader/nso.cpp) times its own frames: holding each frame for
         // the 2 or 3 vblanks it asked for kept it at 20-30 fps. Pace it to every vblank instead
         // (from ZendNevs's fork). EDEN_NX2_PACE_ONE=0 keeps the interval it asks for.

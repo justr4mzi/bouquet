@@ -1,3 +1,5 @@
+# Mario Kart World: swap interval (default 1 to allow full 60 fps pacing). Set to 2 to lock at 30 fps.
+#EDEN_NX2_MKW_SWAP_INTERVAL=2
 # Log FPS stats every 5s and session summary at shutdown (default enabled). Set to 0 to disable.
 #EDEN_FPS_LOG=0
 
