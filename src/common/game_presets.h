@@ -119,7 +119,15 @@ inline std::string ApplyBouquetSmartPreset(Values& settings, u64 program_id, Gpu
         SetMarioKartWorldRecommendedSettings(settings, false);
         session(settings.resolution_setup, resolution);
         session(settings.mkw_dynamic_fps, true);
-        return "Mario Kart World: Lichii's recommended settings, dynamic FPS";
+        if (!integrated) {
+            // Selevet: BC3 recompression darkened the track's ground; discrete GPUs have the
+            // memory for uncompressed ASTC.
+            session(settings.astc_recompression, AstcRecompression::Uncompressed);
+        }
+        return integrated ? "Mario Kart World: Lichii's recommended settings, dynamic FPS, half "
+                            "resolution"
+                          : "Mario Kart World: Lichii's recommended settings, dynamic FPS, "
+                            "uncompressed ASTC";
     case OcarinaOfTimeProgramId:
         session(settings.renderer_backend, RendererBackend::Vulkan);
         session(settings.resolution_setup, resolution);
