@@ -334,6 +334,7 @@ size_t GpuSplit::Execute(const u64* entry) {
 void GpuSplit::BackLoop(std::stop_token stop_token) {
     Common::SetCurrentThreadName("GPUBack");
     Common::SetCurrentThreadPriority(Common::ThreadPriority::Critical);
+    Common::PinCurrentThread(Common::PinnedRole::GpuBack);
     Common::SetCurrentThreadToPerformanceCores();
     system->RegisterHostThread();
 #ifdef _WIN32
