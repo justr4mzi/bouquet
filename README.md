@@ -182,7 +182,7 @@ Everything Lichii had on 6 November 2026, including:
 
 - Ocarina of Time: boot, rendering, the built-in **Max Resolution** and **Dynamic FPS** patches,
   door fix, upscaler gathers, white flashes fix, the last compute shader forms.
-- The **AMD black-scene fix** (#127), **MWAITX/UMWAIT** wait fixes for Ryzen and Intel.
+- The **AMD black-scene fix** (#127, also in Selevet's and Orchid's AMD fixes), **MWAITX/UMWAIT** wait fixes for Ryzen and Intel.
 - **"perf9"**: 17 GPU-thread optimizations promoted by default (cheaper method dispatch,
   batched constant-buffer writes, page-run cache, SPIR-V emission on pipeline workers, smarter
   waits before MME DMA reads, read-back batching: Ocarina's Finishes went from 1184 to 70 a
@@ -202,6 +202,7 @@ Everything Lichii had on 6 November 2026, including:
 | Selevet | First dispatch of each compute shader logged; skip list for GPU hangs | `SKIP_COMPUTE` |
 | Selevet | Tunable Ocarina of Time fog/exposure/bloom (on zortos293's workaround) | `OOT_VISUAL_WORKAROUND`, `OOT_FOG_SCALE`, `OOT_EXPOSURE_SCALE`, `OOT_BLOOM_EXP_SCALE` |
 | Selevet | Uncompressed ASTC for Mario Kart World (BC3 darkened the ground), used by the optimized settings | — |
+| [Orchid](https://github.com/MythosOfs/Orchid) (after leadaenima/Lichii), also in Selevet's AMD fixes | **AMD subgroup shuffle fix**: on AMD drivers (Windows and Linux) graphics shaders that shuffle across lanes no longer lose the upper half of the guest warp on 64-wide hardware; task and mesh shaders left out | — |
 | [Orchid](https://github.com/MythosOfs/Orchid) | **Switch 2 graphics services on their own host thread**: vi2's present no longer blocks emulated core 3 for most of every frame | `GSV_HOST_THREAD` |
 | Orchid, after Selevet | Mario Kart World swap interval held back for 120 presents (40 → 20 fps drop) | `SWAP_STABLE` |
 | [SmileyTatsu](https://github.com/SmileyTatsu/Eglantine) | Mario Kart World dynamic FPS applies (it never did); ASTC data scanned in place and decoded per block (less stutter); guest RAM released when a game stops; Switch 2 pipelines all built at boot and never evicted; no task/mesh pipelines without `VK_EXT_mesh_shader`; crash fix when stopping emulation | — |
