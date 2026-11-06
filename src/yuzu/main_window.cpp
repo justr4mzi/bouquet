@@ -2106,7 +2106,7 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
                 this, tr("Recommended Mario Kart World settings"),
                 tr("Use the recommended settings for Mario Kart World?\n\n"
                    "Vulkan, 1x resolution, GPU Fast, asynchronous shaders, BC3, conservative VRAM, "
-                   "reactive flushing off, FIFO Relaxed VSync, handheld mode, ScaleForce, and "
+                   "reactive flushing off, FIFO Relaxed VSync, handheld mode, Bilinear, and "
                    "FXAA.\n\n"
                    "They apply to Mario Kart World until Bouquet is closed. Your saved settings "
                    "are not changed."),
