@@ -8,7 +8,7 @@
 
 // yuzu data directories
 
-#define EDEN_DIR "eden"
+#define EDEN_DIR "bouquet"
 #define PORTABLE_DIR "user"
 
 // Sub-directories contained within a yuzu data directory

@@ -1,8 +1,8 @@
-# Switch NX2 - read when the Lichii GUI starts.
+# Switch NX2 - read when the Bouquet GUI starts.
 # One NAME=VALUE per line. Lines starting with # are ignored.
 # A variable already set in the environment wins over this file.
-# Between files, the user copy (%APPDATA%\eden\nx2_switches.txt, or
-# $XDG_CONFIG_HOME/eden/nx2_switches.txt) wins over this one, so editing this file is never
+# Between files, the user copy (%APPDATA%\bouquet\nx2_switches.txt, or
+# $XDG_CONFIG_HOME/bouquet/nx2_switches.txt) wins over this one, so editing this file is never
 # needed: copy the lines you want into your own and restart.
 #
 # Restart the emulator after editing.
@@ -36,3 +36,25 @@ EDEN_NX2_FENCE_BATCH=1
 #EDEN_NX2_SPLIT_SKIP=1
 #EDEN_NX2_AUTO_STUB=1
 #EDEN_NX2_KEEP_ASTC=1
+
+# --- Bouquet: optimizations ported from other forks (on by default; uncomment a line to undo it) ---
+# Selevet: semaphore acquires already met in memory don't drain the GPU thread (off in DK Bananza)
+#EDEN_NX2_ACQUIRE_PEEK=0
+# Selevet: acquires met by a release still queued for the GPU thread don't drain
+#EDEN_NX2_ACQUIRE_QUEUED=0
+# Selevet: SEM_EXECUTE acquires release fences on the back thread instead of draining
+#EDEN_NX2_SEMEXEC_DRAIN=1
+# Selevet: poll the host GPU up to 300 us before sleeping in the driver
+#EDEN_NX2_GPU_WAIT_SPIN_US=0
+# Selevet: high process priority (Windows)
+#EDEN_NX2_HIGH_PRIORITY=0
+# Selevet: tell the Switch 2 SDK the display supports VRR (steadier game speed)
+#EDEN_NX2_REPORT_VRR=0
+# Orchid / Eglantine-DKB: skip unchanged vertex buffer checks
+#EDEN_NX2_DRAW_TUNING=0
+# Eglantine-DKB: skip draws with no vertices or no instances
+#EDEN_NX2_DRAW_EMPTY=1
+# Eglantine-DKB (DK Bananza only): macro DMA reads of untouched pages skip the full drain
+#EDEN_NX2_DMA_DRAIN=1
+# Opt-in: skip small Switch 2 draws while their pipeline builds (less stutter, maybe missing effects)
+#EDEN_NX2_ASYNC_SKIP=1
