@@ -143,6 +143,8 @@ void GpuSplit::Stop() {
     last_sync_position = 0;
     last_release_position = 0;
     sem_write_positions.fill(0);
+    queued_releases = {};
+    queued_release_next = 0;
     published_local = 0;
     consumed_cache = 0;
     publish_every = PublishEvery;

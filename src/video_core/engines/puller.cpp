@@ -109,15 +109,13 @@ void NoteQueuedRelease(DmaPusher& dma_pusher, GPUVAddr address, u32 payload) {
     }
 }
 
-std::optional<u32> QueuedReleasePayload(DmaPusher& dma_pusher, GPUVAddr address) {
+template <typename Pred>
+bool AcquireMetByQueuedRelease(DmaPusher& dma_pusher, GPUVAddr address, const Pred& meets) {
     if (!Nx2AcquireQueuedEnabled() || !PeekAcquire()) {
-        return std::nullopt;
+        return false;
     }
     const auto device = dma_pusher.memory_manager.GpuToCpuAddress(address);
-    if (!device) {
-        return std::nullopt;
-    }
-    return VideoCommon::GpuSplit::Get().QueuedRelease(*device);
+    return device && VideoCommon::GpuSplit::Get().QueuedReleaseMeets(*device, meets);
 }
 
 // The fence manager records into the scheduler and downloads the CPU's writes over GPU data:
@@ -343,8 +341,8 @@ void Puller::ProcessSemaphoreTriggerMethod(DmaPusher& dma_pusher) {
         if (PeekAcquire() && acquire.Matches(dma_pusher.memory_manager.Read<u32>(acquire.address))) {
             return;
         }
-        if (const auto queued = QueuedReleasePayload(dma_pusher, acquire.address);
-            queued && acquire.Matches(*queued)) {
+        if (AcquireMetByQueuedRelease(dma_pusher, acquire.address,
+                                      [&acquire](u32 v) { return acquire.Matches(v); })) {
             return;
         }
         DrainBack();
@@ -446,6 +444,20 @@ void Puller::ProcessSemaphoreExecute(DmaPusher& dma_pusher, u32 argument) {
     // Acquires: check once after flushing pending fences; never block the GPU thread on them.
     // The check only logs, so with the split the fences are released in order on the back instead
     // of draining it. EDEN_NX2_SEMEXEC_DRAIN=1 drains as before (from selevet-eglantine).
+    const auto meets = [operation, payload](u32 word) {
+        return operation == 0   ? word == payload
+               : operation == 2 ? word >= payload
+               : operation == 3 ? static_cast<s32>(word - payload) >= 0
+               : operation == 4 ? (word & payload) != 0
+               : operation == 5 ? (word & payload) == 0
+                                : true;
+    };
+    if (PeekAcquire() && meets(dma_pusher.memory_manager.Read<u32>(address))) {
+        return;
+    }
+    if (AcquireMetByQueuedRelease(dma_pusher, address, meets)) {
+        return;
+    }
     static const bool semexec_drain = std::getenv("EDEN_NX2_SEMEXEC_DRAIN") != nullptr;
     if (!semexec_drain && VideoCommon::GpuSplit::Get().Active()) {
         OnBack([rasterizer = dma_pusher.rasterizer] { rasterizer->ReleaseFences(); });
@@ -454,12 +466,7 @@ void Puller::ProcessSemaphoreExecute(DmaPusher& dma_pusher, u32 argument) {
     DrainBack();
     ReleaseFences(dma_pusher);
     const u32 word = dma_pusher.memory_manager.Read<u32>(address);
-    const bool ready = operation == 0   ? word == payload
-                       : operation == 2 ? word >= payload
-                       : operation == 3 ? static_cast<s32>(word - payload) >= 0
-                       : operation == 4 ? (word & payload) != 0
-                       : operation == 5 ? (word & payload) == 0
-                                        : true;
+    const bool ready = meets(word);
     if (!ready) {
         static std::atomic<u32> reported{};
         if (reported.fetch_add(1) < 8) {

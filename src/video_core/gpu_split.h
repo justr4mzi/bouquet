@@ -194,27 +194,37 @@ public:
     /// the acquire, in order, and the host queue keeps that order. Call right after sending one.
     /// From sylvieistaken/selevet-eglantine.
     void NoteQueuedRelease(u64 device_address, u32 payload) {
-        if (queued_releases.size() >= 4096) {
-            queued_releases.clear();
-        }
-        queued_releases[device_address] = {payload, write_position};
+        queued_releases[queued_release_next++ & (queued_releases.size() - 1)] = {
+            .address = device_address,
+            .position = write_position,
+            .payload = payload,
+        };
     }
-    /// The payload of a queued release to `device_address` the back has not executed yet.
+    template <typename Pred>
+    [[nodiscard]] bool QueuedReleaseMeets(u64 device_address, const Pred& meets) {
+        const u64 done = consumed.load(std::memory_order_acquire);
+        for (const auto& release : queued_releases) {
+            if (release.position > done && release.position <= write_position &&
+                release.address == device_address && meets(release.payload)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    /// The payload of the latest queued release to `device_address` the back has not executed yet.
     [[nodiscard]] std::optional<u32> QueuedRelease(u64 device_address) {
-        if (queued_releases.empty()) {
-            return std::nullopt;
+        const u64 done = consumed.load(std::memory_order_acquire);
+        for (size_t i = 0; i < queued_releases.size(); ++i) {
+            const auto& release =
+                queued_releases[(queued_release_next - 1 - i) & (queued_releases.size() - 1)];
+            if (release.position <= done || release.position > write_position) {
+                continue;
+            }
+            if (release.address == device_address) {
+                return release.payload;
+            }
         }
-        const auto it = queued_releases.find(device_address);
-        if (it == queued_releases.end()) {
-            return std::nullopt;
-        }
-        // Executed (memory is the authority now), or sent before the split restarted.
-        if (consumed.load(std::memory_order_acquire) >= it->second.sent ||
-            it->second.sent > write_position) {
-            queued_releases.erase(it);
-            return std::nullopt;
-        }
-        return it->second.payload;
+        return std::nullopt;
     }
 
 private:
@@ -292,10 +302,12 @@ private:
 
     // Front side.
     struct QueuedReleaseEntry {
-        u32 payload;
-        u64 sent;
+        u64 address{};
+        u64 position{};
+        u32 payload{};
     };
-    std::unordered_map<u64, QueuedReleaseEntry> queued_releases;
+    std::array<QueuedReleaseEntry, 64> queued_releases{};
+    size_t queued_release_next{};
     u64 write_position{};
     u64 last_writer_position{};
     u64 last_sync_position{};
