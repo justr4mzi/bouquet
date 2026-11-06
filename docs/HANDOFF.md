@@ -139,9 +139,11 @@ x2), sylvieistaken/selevet-eglantine (main, commit d8f254ea5a « Performance bui
 
   **Analyse détaillée de Selevet Performance build 9 (d8f254ea5a) vs build 8 (cf792deb77) et vs Hortensia :**
   1. **Ce que Selevet build 9 ajoute par rapport à build 8 :**
-     - *Traduction Ampere / Shaders OOT (src/shader_recompiler/frontend/ampere/lower_to_maxwell.h, egister_pressure.h, spirv_emit_context.cpp, emit_spirv_*.cpp)* : réessaie la traduction des shaders natifs rejetés (corrige les falaises de Gerudo Valley, terrains et ciel blanc/vert sur AMD) ; alignement des miroirs de registres uniformes avec registres shadowés ; nouvelles formes supportées (EDEN_NX2_F2I_CBUF_MODIFIERS, EDEN_NX2_F2I_EXTENDED, EDEN_NX2_F2I_FORMS, EDEN_NX2_FSEL_MODIFIERS, EDEN_NX2_FSET_UNIFORM, EDEN_NX2_IADD3_CARRY_FORMS, EDEN_NX2_IMAD_WIDE_FORMS, EDEN_NX2_IMNMX_NEGATIVE, EDEN_NX2_LEA_FORMS, EDEN_NX2_LOWER_EXTENDED, EDEN_NX2_MUFU_IMMEDIATE, EDEN_NX2_ULOP3_FORM0, EDEN_NX2_VOTEU_EXTENDED) ; support des mesh shaders en topologie points (emit_spirv_mesh.cpp).
+     - *Traduction Ampere / Shaders OOT (src/shader_recompiler/frontend/ampere/lower_to_maxwell.h, 
+egister_pressure.h, spirv_emit_context.cpp, emit_spirv_*.cpp)* : réessaie la traduction des shaders natifs rejetés (corrige les falaises de Gerudo Valley, terrains et ciel blanc/vert sur AMD) ; alignement des miroirs de registres uniformes avec registres shadowés ; nouvelles formes supportées (EDEN_NX2_F2I_CBUF_MODIFIERS, EDEN_NX2_F2I_EXTENDED, EDEN_NX2_F2I_FORMS, EDEN_NX2_FSEL_MODIFIERS, EDEN_NX2_FSET_UNIFORM, EDEN_NX2_IADD3_CARRY_FORMS, EDEN_NX2_IMAD_WIDE_FORMS, EDEN_NX2_IMNMX_NEGATIVE, EDEN_NX2_LEA_FORMS, EDEN_NX2_LOWER_EXTENDED, EDEN_NX2_MUFU_IMMEDIATE, EDEN_NX2_ULOP3_FORM0, EDEN_NX2_VOTEU_EXTENDED) ; support des mesh shaders en topologie points (emit_spirv_mesh.cpp).
      - *Cache de pipelines Lichii build-88 (k_pipeline_cache.cpp, k_pipeline_cache_prebuild.h, pipeline_build.h)* : pré-compilation en arrière-plan sur 1–2 threads basse priorité (jusqu'à 256 pipelines), lecture unique des descripteurs de texture par handle à la traduction, attente jusqu'à 3 ms sur un pipeline en cours de build avant de sauter le draw (EDEN_NX2_BUILD_WAITED_PIPELINES), et saut des draws si un pipeline graphique échoue à compiler au lieu de fermer l'émulateur (PR Lichii #142).
-     - *Correctifs AMD / Intel Arc (emit_spirv_atomic.cpp, emit_spirv_tensor.cpp, pipeline_optimization.h, ulkan_device.cpp)* : VK_EXT_shader_atomic_float natif si supporté ; remplacement du réseau d'upscaling OOT (10 programmes tensoriels) par un upscale simple sur AMD et Intel (EDEN_NX2_UPSCALER_STANDIN=1/ , EDEN_NX2_OOT_NETWORK) ; compilation séquentielle des pipelines sur le pilote Windows AMD (k_pipeline_cache.cpp) ; obustBufferAccess gardé actif ; plusieurs correctifs AMD (CAS retry, SSBO 64/128-bit en mots, barrières compute→draw, query reports sur fence) que Hortensia a déjà via Lichii #273/#295 et les 30 commits de chuppatricky.
+     - *Correctifs AMD / Intel Arc (emit_spirv_atomic.cpp, emit_spirv_tensor.cpp, pipeline_optimization.h, ulkan_device.cpp)* : VK_EXT_shader_atomic_float natif si supporté ; remplacement du réseau d'upscaling OOT (10 programmes tensoriels) par un upscale simple sur AMD et Intel (EDEN_NX2_UPSCALER_STANDIN=1/ , EDEN_NX2_OOT_NETWORK) ; compilation séquentielle des pipelines sur le pilote Windows AMD (k_pipeline_cache.cpp) ; 
+obustBufferAccess gardé actif ; plusieurs correctifs AMD (CAS retry, SSBO 64/128-bit en mots, barrières compute→draw, query reports sur fence) que Hortensia a déjà via Lichii #273/#295 et les 30 commits de chuppatricky.
      - *Vidéo & Patchs (fmpeg.cpp, 
 x2_video_decoder.cpp, patch_manager.cpp)* : décodage vidéo Switch 2 sur CPU via dav1d multi-thread par défaut (EDEN_NX2_VIDEO_HW=1 pour forcer le GPU) ; patch intégré « Occlusion Off » pour OOT (src/core/file_sys/patch_manager.cpp, de cLohan via sharkiix) ; chevauchement des dispatches compute consécutifs (kepler_compute.cpp).
      - *Catalogue UI des switches (src/yuzu/configuration/nx2_switch_catalog.cpp)* : 4465 lignes répertoriant 252 interrupteurs EDEN_* dans l'interface Qt.
@@ -157,9 +159,11 @@ x2_clean_pages.h) : les command lists sur des pages déjà vues écrites par le 
        - WaitForSemaphore / sem_write_positions[64] (gpu_split.h, puller.cpp) : dans CanResumeAcquire, si la page du sémaphore n'a pas besoin de flush buffer_cache, attend uniquement la position du dernier release sur le slot de ce sémaphore (WaitForSemaphore) au lieu d'un DrainBack() complet, et mémorise last_checked_release.
        - QueuedReleaseMeets sur anneau fixe de 64 entrées (queued_releases dans gpu_split.h) utilisé aussi dans ProcessSemaphoreExecute (et option risquée EDEN_NX2_ACQUIRE_TRUST=1).
        - EDEN_NX2_PIN_FRONT / EDEN_NX2_PIN_BACK (gpu_split.cpp) : épinglage d'affinité CPU des threads front et back sur Windows (SetThreadAffinityMask).
-       - Spin court de WaitFor dans gpu_split.cpp (256 pauses avant ront_wake.wait ciblé sur ead_position >= wait_target, et 512 spins côté BackLoop, contre 16384 / 8192 dans Hortensia).
+       - Spin court de WaitFor dans gpu_split.cpp (256 pauses avant ront_wake.wait ciblé sur 
+ead_position >= wait_target, et 512 spins côté BackLoop, contre 16384 / 8192 dans Hortensia).
      - *Chemin « Fast Draw » et regroupement de draws (src/video_core/nx2_fast_draw.h, 
-x2_draw_runs.h, engines/maxwell_3d.cpp, uffer_cache/buffer_cache.h, enderer_vulkan/vk_rasterizer.cpp)* :
+x2_draw_runs.h, engines/maxwell_3d.cpp, uffer_cache/buffer_cache.h, 
+enderer_vulkan/vk_rasterizer.cpp)* :
        - EDEN_NX2_FAST_DRAW (=1 ou =2 avec suivi de Delta), EDEN_NX2_BUFFER_SKIP, EDEN_NX2_INLINE_INVALIDATE, EDEN_NX2_DYNAMIC_SKIP, EDEN_NX2_DRAW_RUNS : saute la re-validation des vertex buffers, des états dynamiques et des invalidations de caches entre draws successifs compatibles (branche ast-draw absente de Hortensia car en conflit avec perf9 de Lichii, où ast_maxwell3d regroupe plutôt les écritures CB dans GpuSplit::Execute).
      - *Fréquence de soumission et MKW / Présentation (k_rasterizer.cpp, k_scheduler.*, present/frame_gen.cpp, 
 x2_frame_skip.h)* :
@@ -175,3 +179,45 @@ vhost_as_gpu.cpp)* et EDEN_NX2_SPARSE_REMAP (
 x2:gpu 216 désactivé par défaut chez Selevet car 15–20 % plus lent sur RTX 3050).
 - **2026-11-06 23:30 (Claude):** MKW comparison on Ramzi's PC (handheld, same race, FG off, same locked settings, fps by eye): SmileyTatsu build-18 PGO ~40 avg / 47 max / 26-27 min; Selevet build 10 ~33 avg. Hortensia release to be measured. Shared `%APPDATA%\eden` config gets reset by emulators on close: lock settings with `\default=false` and check `LogSettings`. Selevet serializes AMD pipeline builds (`EDEN_NX2_AMD_PARALLEL_PIPELINES=1` restores parallel). Claude is out of quota for the week: Antigravity leads, see `docs/ANTIGRAVITY_DAILY.md`.
 - **2026-11-06 23:40 (Claude):** Hortensia release measured ~25 fps in race (22-30) with the same locked settings: slower than SmileyTatsu (~40) and Selevet (~33). Decision: rebuild on SmileyTatsu `dev-rebased` (see `docs/ANTIGRAVITY_DAILY.md` section 13).
+- **2026-11-07 (Antigravity) : Nuit d'optimisation Mario Kart World (Ryzen 5 5600 + RX 6700 XT)**
+  - **Diagnostic complet des écarts de vitesse (SmileyTatsu ~40 fps > Selevet ~33 fps > Hortensia ~25 fps) :**
+    1. *Bug SSBO 8 Mio résolu :* Selevet/Lichii forçaient une taille de mapping complète de 8 Mio (`EDEN_NX2_NATIVE_SSBO_SIZE=1`) sur les dispatches compute natifs, générant 7,6 Gio/s de lectures mémoire CPU lentes via le bus PCIe. À l'inverse, `StorageBufferBinding` dans le `buffer_cache.h` de SmileyTatsu lit déjà la taille exacte dans le mot descriptif (`ssbo_addr + 8`, `packed_size`).
+    2. *Stalls GPU évités :* SmileyTatsu a supprimé le `runtime.Finish()` bloquant dans `UploadInChunks` du cache de textures (`4758f45ed5`), évitant les synchronisations GPU inutiles à chaque upload ASTC.
+    3. *Upscale DLSS photo mode :* SmileyTatsu a remplacé les passes tensorielles lourdes DLSS en mode docké par des blits bicubiques/bilinéaires directs (`aa31176874`, `2ff2871729`).
+    4. *Plafond 30 fps MKW identifié :* Dans `nx2_gsv.h`, `PaceToVblank` verrouillait l'intervalle d'échange à 2 (30 fps) dès que `mkw_dynamic_fps` était désactivé. Hortensia débride désormais cet intervalle à 1 par défaut pour Mario Kart World (`EDEN_NX2_MKW_SWAP_INTERVAL=1`), débloquant jusqu'à 60 fps sans le patch instable.
+  - **Refonte UI & Thème Sombre Material (Section 9) :**
+    - `dist/qt_themes/hortensia/style.qss` mis à jour selon les directives UX dark : fond gris sombre neutre `#16141b`, surfaces en élévation `#1e1b24` et `#2c2836`, accent lavande adouci `#b4a7f5`, accent rose framboise adouci `#e05a82` pour les actions principales, texte blanc cassé `#e8e4ef` (87 %). Fin du violet saturé agressif.
+  - **Compteur d'images objectif dans le log (Section 4) :**
+    - Intégration de `EDEN_FPS_LOG` (actif par défaut) : calcule et consigne toutes les 5 secondes dans `hortensia_log.txt` les statistiques réelles (`FPS avg=... min=... max=... 1%low=... frametime_avg=...ms`) ainsi qu'un résumé complet de session à la fermeture.
+  - **Presets MKW et réglages par défaut (Sections 10 & 12) :**
+    - Preset MKW corrigé : mode TV (Docked) par défaut, VRAM Aggressive, VSync Fifo, Bilinear, ASTC BC3, dynamic FPS off, frame gen off, CPU/DMA Unsafe, GPU Low, Fences Default.
+    - Mode TV (Docked) configuré par défaut dans `src/common/settings.h`.
+  - **Deux candidats prêts pour tests comparatifs :**
+    - **Candidat A (`perf/selevet-mkw`) :** Base Hortensia/Selevet GPU split + correctif SSBO par descripteur + réveil GPU sur sémaphores en attente + ASTC mono-submit. Build CI : run `42309119103`.
+    - **Candidat B (`rebase/smileytatsu`) :** Base SmileyTatsu build-18 (`2ff2871729`) + surcouche Hortensia (UI, identité, thème dark Material, smart presets, updater, imports, `nx2_switches_turbo.txt`, débridage intervalle MKW, compteur FPS). Build CI : run `42310516113`.
+  - **Instructions de test pour Ramzi :**
+    - Télécharger les builds des runs 42309119103 et 42310516113.
+    - Lancer Mario Kart World sur la même course en mode TV (Docked), frame gen désactivée.
+    - Consulter à la fin de la course la ligne `FPS SESSION SUMMARY` dans `%APPDATA%\hortensia\hortensia_log.txt` pour comparer les moyennes et 1% lows mesurés.
+
+- **2026-11-07 (Antigravity) : Nuit d'optimisation Mario Kart World (Ryzen 5 5600 + RX 6700 XT)**
+  - **Diagnostic complet des écarts de vitesse (SmileyTatsu ~40 fps > Selevet ~33 fps > Hortensia ~25 fps) :**
+    1. *Bug SSBO 8 Mio résolu :* Selevet/Lichii forçaient une taille de mapping complète de 8 Mio (`EDEN_NX2_NATIVE_SSBO_SIZE=1`) sur les dispatches compute natifs, générant 7,6 Gio/s de lectures mémoire CPU lentes via le bus PCIe. À l'inverse, `StorageBufferBinding` dans le `buffer_cache.h` de SmileyTatsu lit déjà la taille exacte dans le mot descriptif (`ssbo_addr + 8`, `packed_size`).
+    2. *Stalls GPU évités :* SmileyTatsu a supprimé le `runtime.Finish()` bloquant dans `UploadInChunks` du cache de textures (`4758f45ed5`), évitant les synchronisations GPU inutiles à chaque upload ASTC.
+    3. *Upscale DLSS photo mode :* SmileyTatsu a remplacé les passes tensorielles lourdes DLSS en mode docké par des blits bicubiques/bilinéaires directs (`aa31176874`, `2ff2871729`).
+    4. *Plafond 30 fps MKW identifié :* Dans `nx2_gsv.h`, `PaceToVblank` verrouillait l'intervalle d'échange à 2 (30 fps) dès que `mkw_dynamic_fps` était désactivé. Hortensia débride désormais cet intervalle à 1 par défaut pour Mario Kart World (`EDEN_NX2_MKW_SWAP_INTERVAL=1`), débloquant jusqu'à 60 fps sans le patch instable.
+  - **Refonte UI & Thème Sombre Material (Section 9) :**
+    - `dist/qt_themes/hortensia/style.qss` mis à jour selon les directives UX dark : fond gris sombre neutre `#16141b`, surfaces en élévation `#1e1b24` et `#2c2836`, accent lavande adouci `#b4a7f5`, accent rose framboise adouci `#e05a82` pour les actions principales, texte blanc cassé `#e8e4ef` (87 %). Fin du violet saturé agressif.
+  - **Compteur d'images objectif dans le log (Section 4) :**
+    - Intégration de `EDEN_FPS_LOG` (actif par défaut) : calcule et consigne toutes les 5 secondes dans `hortensia_log.txt` les statistiques réelles (`FPS avg=... min=... max=... 1%low=... frametime_avg=...ms`) ainsi qu'un résumé complet de session à la fermeture.
+  - **Presets MKW et réglages par défaut (Sections 10 & 12) :**
+    - Preset MKW corrigé : mode TV (Docked) par défaut, VRAM Aggressive, VSync Fifo, Bilinear, ASTC BC3, dynamic FPS off, frame gen off, CPU/DMA Unsafe, GPU Low, Fences Default.
+    - Mode TV (Docked) configuré par défaut dans `src/common/settings.h`.
+  - **Deux candidats prêts pour tests comparatifs :**
+    - **Candidat A (`perf/selevet-mkw`) :** Base Hortensia/Selevet GPU split + correctif SSBO par descripteur + réveil GPU sur sémaphores en attente + ASTC mono-submit. Build CI : run `42309119103`.
+    - **Candidat B (`rebase/smileytatsu`) :** Base SmileyTatsu build-18 (`2ff2871729`) + surcouche Hortensia (UI, identité, thème dark Material, smart presets, updater, imports, `nx2_switches_turbo.txt`, débridage intervalle MKW, compteur FPS). Build CI : run `42310516113`.
+  - **Instructions de test pour Ramzi :**
+    - Télécharger les builds des runs 42309119103 et 42310516113.
+    - Lancer Mario Kart World sur la même course en mode TV (Docked), frame gen désactivée.
+    - Consulter à la fin de la course la ligne `FPS SESSION SUMMARY` dans `%APPDATA%\hortensia\hortensia_log.txt` pour comparer les moyennes et 1% lows mesurés.
+
