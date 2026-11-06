@@ -69,6 +69,7 @@ jobs:
           - platform: linux-x86_64-pgo
             runner: ubuntu-24.04
             pgo: true
+            lto: true
           - platform: windows-x86_64
             runner: windows-2022
           # Same PGO build for CPUs with AVX2 (x86-64-v3: Ryzen, Intel 4th gen and newer), like
@@ -78,6 +79,7 @@ jobs:
             pgo: true
             mingw: true
             march: x86-64-v3
+            lto: true
           - platform: linux-aarch64-pgo
             runner: ubuntu-24.04-arm
             pgo: true
@@ -278,6 +280,10 @@ jobs:
               "-DCMAKE_CXX_FLAGS=$profile"
             )
           fi
+          if [ '${{ matrix.lto }}' = 'true' ]; then
+            # ThinLTO, as in Selevet's tuned build.
+            flags+=("-DENABLE_LTO=ON")
+          fi
           cmake -S . -B build/release -G Ninja "${flags[@]}"
 
       - name: Configure Windows
@@ -353,6 +359,7 @@ jobs:
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld \
+            -DENABLE_LTO=${{ matrix.lto && 'ON' || 'OFF' }} \
             "-DCMAKE_C_FLAGS=$profile" \
             "-DCMAKE_CXX_FLAGS=$profile"
 
