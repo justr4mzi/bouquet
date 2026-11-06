@@ -107,6 +107,7 @@ struct Profile {
     /// AMD graphics workaround, enabled only when this stage is forced to subgroup size 32.
     /// Compute must keep Shuffle: the broadcast loop can hang AMDVLK pipeline compilation.
     bool has_broken_spirv_dynamic_subgroup_shuffle{};
+    bool has_broken_spirv_fragment_shuffle{};
     u32 max_subgroup_size{};
 
     u32 gl_max_compute_smem_size{};
