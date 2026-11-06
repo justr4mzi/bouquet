@@ -205,7 +205,7 @@ The full list with authors is in the commit history. Here is what each source br
 
 ### Base: [Lichii](https://github.com/zortos293/Lichii) `nx2` (zortos293 and contributors)
 
-Everything Lichii had on 6 November 2026 (17:00), including:
+Everything Lichii had on 6 November 2026 (21:00), including:
 
 - Ocarina of Time: boot, rendering, the built-in **Max Resolution** and **Dynamic FPS** patches,
   door fix, upscaler gathers, white flashes fix, the last compute shader forms.
@@ -220,6 +220,10 @@ Everything Lichii had on 6 November 2026 (17:00), including:
 - **Frizti's performance work** (#194): event waits instead of spinning, Ocarina one frame
   ahead, 4096-draw submissions, deferred fragment barriers, cheaper CPU timer reads, uniform bank
   uploads without page protection churn, FSR3 fixes.
+- **Lichii's late 6 November updates**: lost-wake fix when cancelling worker tasks (#290), opt-in
+  `EDEN_NX2_ASYNC_DISCARD` to skip native draws with unbuilt pipelines (#224), performance
+  defaults seeded for new desktop configs while keeping Hortensia's Bilinear default (#314), and
+  opt-in desktop compatibility reports (#303).
 
 ### Added on top
 
@@ -268,6 +272,7 @@ section. If something looks wrong after an update, turn the switches off one at 
 | `EDEN_NX2_DMA_DRAIN` | off (DK skip on) | `=1` always drain |
 | `EDEN_NX2_PACE_ONE` | on (DK) | `=0` keep DK's interval |
 | `EDEN_NX2_ASYNC_SKIP` | off | `=1` skip small draws while their pipeline builds |
+| `EDEN_NX2_ASYNC_DISCARD` | off | `=1` skip native draws (including depth-enabled) while their pipeline builds |
 | `EDEN_NX2_OOT_VISUAL_WORKAROUND` | on in Hortensia's file (Ocarina only) | delete the line |
 | `EDEN_NX2_OOT_FOG_SCALE` / `_EXPOSURE_SCALE` / `_BLOOM_EXP_SCALE` | 0.35 / 0.75 / 1.2 | lower = less haze/glare |
 | `EDEN_CPU_ACCURATE_FLOAT`, `EDEN_CPU_FUSED_FMA`, `EDEN_CPU_GLOBAL_MONITOR` | off | `=1` on |

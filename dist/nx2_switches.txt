@@ -58,6 +58,8 @@ EDEN_NX2_FENCE_BATCH=1
 #EDEN_NX2_DMA_DRAIN=1
 # Opt-in: skip small Switch 2 draws while their pipeline builds (less stutter, maybe missing effects)
 #EDEN_NX2_ASYNC_SKIP=1
+# Lichii (#224), opt-in: let native Switch 2 draws follow the async shader discard heuristic while their pipeline builds
+#EDEN_NX2_ASYNC_DISCARD=1
 # Selevet: the timer thread sleeps through long waits (frees most of a CPU core on 6-core CPUs)
 #EDEN_TIMING_COARSE=0
 # Selevet: wake the timer thread only for a new earliest event (Donkey Kong Bananza)
