@@ -131,3 +131,26 @@ dans `dist/nx2_switches.txt`.
   regarder le cache des shaders (Ramzi a mis ça de côté pour l'instant).
 - La tâche planifiée Claude de 7h47 n'a plus de quota cette semaine. Ramzi peut la désactiver
   dans l'app, et c'est toi qui fais la ronde du matin.
+
+## 9. Thème : Ramzi trouve le violet actuel désagréable (« ça fait mal aux yeux »)
+
+Fichier : `dist/qt_themes/hortensia/style.qss` (+ la palette dans le code si elle y est). Ce qui
+gêne sur la capture du 6 nov : fond violet saturé `#1d1430`, ligne du dossier en violet vif,
+lignes alternées gris/violet qui jurent, et accent `#6f5fd0` trop saturé sur du sombre.
+Suis les règles des guides de thème sombre (Material Design dark theme, guides UX) :
+- **Fond gris très sombre presque neutre**, pas noir pur ni violet saturé : `#121212` à
+  `#16141b`, avec juste une pointe de violet.
+- **Profondeur par élévation** : chaque surface au-dessus est un peu plus claire (`#1c1a22`,
+  `#24212c`, `#2c2836`), pas des couleurs différentes.
+- **Couleurs d'accent désaturées** (teintes « 200 » de Material) : lavande douce vers `#b4a7f5`
+  au lieu de `#6f5fd0`. Garde le rose seulement pour le bouton principal (Yes/OK/Lancer),
+  un peu adouci (vers `#e05a82`).
+- **Texte blanc cassé, pas blanc pur** : principal vers `#e8e4ef` (87 %), secondaire vers
+  `#a8a2b4` (60 %), désactivé à 38 %. Contraste WCAG ≥ 4.5:1 pour le texte.
+- Ligne du dossier : surface +1 niveau avec une fine bordure, plus de bandeau violet. Lignes
+  alternées quasi invisibles (écart de 2-3 % de luminosité) ou supprimées. Sélection discrète
+  (`#2f2a40`) avec l'accent en liseré à gauche.
+- Barre de statut : une seule couleur d'accent pour les états actifs, gris pour le reste
+  (aujourd'hui rouge/orange/blanc mélangés).
+- Propose 2-3 variantes (captures avant/après) à Ramzi avant de choisir, et garde l'ancien
+  thème dans le menu des thèmes. Option bonus : un thème clair doux.
