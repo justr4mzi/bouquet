@@ -119,6 +119,13 @@ inline std::string ApplyBouquetSmartPreset(Values& settings, u64 program_id, Gpu
         SetMarioKartWorldRecommendedSettings(settings, false);
         session(settings.resolution_setup, resolution);
         session(settings.mkw_dynamic_fps, true);
+        // Selevet's tuned Mario Kart World settings (55.5 fps median at 1x on a Ryzen 5 5500 and
+        // an RTX 3050): Unsafe CPU and DMA accuracy, Immediate GPU fences, no memory operation
+        // syncs.
+        session(settings.cpu_accuracy, CpuAccuracy::Unsafe);
+        session(settings.dma_accuracy, DmaAccuracy::Unsafe);
+        session(settings.gpu_fence_behavior, GpuFenceBehavior::Immediate);
+        session(settings.sync_memory_operations, false);
         if (!integrated) {
             // Selevet: BC3 recompression darkened the track's ground; discrete GPUs have the
             // memory for uncompressed ASTC.
