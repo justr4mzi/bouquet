@@ -353,7 +353,17 @@ jobs:
         shell: msys2 {0}
         run: |
           set -euo pipefail
-          profile="-fprofile-use=$(cygpath -m "$PWD/eglantine.profdata") -Wno-backend-plugin \
+          # eglantine.profdata merged with the Mario Kart World sessions recorded with the training
+          # build (tools/pgo/profiles), weighted 2:1 towards Mario Kart World.
+          profdata="$PWD/eglantine.profdata"
+          if ls tools/pgo/profiles/*.profdata >/dev/null 2>&1; then
+            args=(-weighted-input=1,eglantine.profdata)
+            for f in tools/pgo/profiles/*.profdata; do args+=("-weighted-input=2,$f"); done
+            if /ucrt64/bin/llvm-profdata.exe merge "${args[@]}" -o hortensia.profdata; then
+              profdata="$PWD/hortensia.profdata"
+            fi
+          fi
+          profile="-fprofile-use=$(cygpath -m "$profdata") -Wno-backend-plugin \
             -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date"
           if [ '${{ matrix.train }}' = 'true' ]; then
             profile="-fprofile-generate -DHORTENSIA_PGO_GENERATE"
