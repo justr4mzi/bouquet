@@ -58,3 +58,31 @@ EDEN_NX2_FENCE_BATCH=1
 #EDEN_NX2_DMA_DRAIN=1
 # Opt-in: skip small Switch 2 draws while their pipeline builds (less stutter, maybe missing effects)
 #EDEN_NX2_ASYNC_SKIP=1
+# Selevet: the timer thread sleeps through long waits (frees most of a CPU core on 6-core CPUs)
+#EDEN_TIMING_COARSE=0
+# Selevet: wake the timer thread only for a new earliest event (Donkey Kong Bananza)
+#EDEN_TIMING_WAKE_ALL=1
+# Orchid: Switch 2 graphics services run on their own host thread instead of emulated core 3
+#EDEN_NX2_GSV_HOST_THREAD=0
+# Orchid / Selevet: honour a swap interval above 1 only after N presents (Mario Kart World: 120)
+#EDEN_NX2_SWAP_STABLE=0
+# SmileyTatsu: Switch 2 pipelines are all built at boot and never evicted (less stutter in game)
+# notsapinho: storage reads of Switch 2 games are not paced (faster loading, Pokopia boots ~13 s faster)
+
+# --- Opt-in (off unless you set them) ---
+# Selevet: CPU float math as in Accurate mode while CPU accuracy stays on Unsafe/Auto
+#EDEN_CPU_ACCURATE_FLOAT=1
+#EDEN_CPU_FUSED_FMA=1
+#EDEN_CPU_GLOBAL_MONITOR=1
+# Selevet: skip compute shaders by hash (each new compute shader is logged as "Nx2 first dispatch");
+# put the last hashes before a "Device loss" here, comma separated, to work around a GPU hang
+#EDEN_NX2_SKIP_COMPUTE=
+# Lichii (zortos293), tuned by Selevet: Ocarina of Time fog/exposure/bloom reduction
+#EDEN_NX2_OOT_VISUAL_WORKAROUND=1
+#EDEN_NX2_OOT_FOG_SCALE=0.35
+#EDEN_NX2_OOT_EXPOSURE_SCALE=0.75
+#EDEN_NX2_OOT_BLOOM_EXP_SCALE=1.2
+# Lichii (zortos293) "K4": report GPU time divided by N to Ampere games (Ocarina's dynamic resolution)
+#EDEN_NX2_GPU_TIME_DIV=4
+# Lichii (zortos293) prototype: record render passes in parallel
+#EDEN_NX2_PARALLEL_RECORD=1
