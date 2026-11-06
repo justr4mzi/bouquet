@@ -11,6 +11,8 @@
 #include <boost/algorithm/string/split.hpp>
 #include "common/fs/path_util.h"
 #include "common/game_presets.h"
+#include <QSignalBlocker>
+#include <QTimer>
 #include "common/settings.h"
 #include "common/settings_enums.h"
 #include "frontend_common/settings_generator.h"
@@ -557,6 +559,43 @@ MainWindow::MainWindow(bool has_broken_vulkan)
                 QString::fromStdString(hbl_path),
                 LibraryAppletParameters(0x010000000000100Dull, Service::AM::AppletId::QLaunch));
         }
+    }
+    // Bouquet: Emulation > "Optimized settings per game" turns the smart presets on and off.
+    {
+        QAction* const smart = ui->menu_Emulation->addAction(tr("Optimized Settings per Game"));
+        smart->setCheckable(true);
+        smart->setChecked(Settings::values.bouquet_smart_presets.GetValue());
+        connect(smart, &QAction::toggled, this, [this](bool checked) {
+            Settings::values.bouquet_smart_presets = checked;
+            Settings::values.bouquet_smart_presets_asked = true;
+            config->SaveAllValues();
+        });
+        bouquet_smart_presets_action = smart;
+    }
+    // Bouquet: offer the optimized settings once, at the first start.
+    if (!Settings::values.bouquet_smart_presets_asked.GetValue()) {
+        QTimer::singleShot(0, this, [this] {
+            Settings::values.bouquet_smart_presets_asked = true;
+            Settings::values.bouquet_smart_presets =
+                QMessageBox::question(
+                    this, tr("Bouquet optimized settings"),
+                    tr("Let Bouquet set the best settings for each game automatically?\n\n"
+                       "When you start Mario Kart World, Ocarina of Time, Donkey Kong Bananza, "
+                       "Pokemon Pokopia or Splatoon Raiders, Bouquet applies the settings the "
+                       "emulator forks recommend for it, adapted to your graphics card (NVIDIA, "
+                       "AMD or Intel). They apply while the game runs; your saved settings are not "
+                       "changed.\n\nYou can change this later in the Emulation menu (Optimized "
+                       "Settings per Game)."),
+                    QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes) == QMessageBox::Yes;
+            LOG_INFO(Config, "Bouquet optimized settings: {}",
+                     Settings::values.bouquet_smart_presets.GetValue());
+            if (bouquet_smart_presets_action != nullptr) {
+                const QSignalBlocker blocker{bouquet_smart_presets_action};
+                bouquet_smart_presets_action->setChecked(
+                    Settings::values.bouquet_smart_presets.GetValue());
+            }
+            config->SaveAllValues();
+        });
     }
 }
 
@@ -1980,6 +2019,26 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
         QtCommon::system->ApplySettings();
     }
 
+    // Bouquet smart presets: each supported game's optimized settings, adapted to the GPU vendor,
+    // applied for this session without asking.
+    if (Settings::values.bouquet_smart_presets.GetValue()) {
+        Settings::GpuVendor vendor = Settings::GpuVendor::Unknown;
+        const auto device = static_cast<size_t>(Settings::values.vulkan_device.GetValue());
+        if (device < vk_device_records.size()) {
+            vendor = Settings::GpuVendorFromName(vk_device_records[device].name);
+        }
+        const std::string summary =
+            Settings::ApplyBouquetSmartPreset(Settings::values, title_id, vendor);
+        if (!summary.empty()) {
+            QtCommon::system->ApplySettings();
+            Settings::UpdateGPUAccuracy();
+            LOG_INFO(Config, "Bouquet optimized settings ({} GPU): {}",
+                     Settings::GpuVendorName(vendor), summary);
+        }
+        // The MKW question below is answered by the option.
+        asked_recommended_mkw_settings = true;
+        use_recommended_mkw_settings = false;
+    }
     if (title_id == Settings::MarioKartWorldProgramId && !asked_recommended_mkw_settings) {
         asked_recommended_mkw_settings = true;
         use_recommended_mkw_settings =

@@ -509,6 +509,7 @@ private:
     MultiplayerState* multiplayer_state = nullptr;
     bool use_recommended_mkw_settings = false;
     bool asked_recommended_mkw_settings = false;
+    QAction* bouquet_smart_presets_action = nullptr;
 
     GRenderWindow* render_window = nullptr;
     GameList* game_list = nullptr;
