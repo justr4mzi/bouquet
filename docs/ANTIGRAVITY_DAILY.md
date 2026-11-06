@@ -213,3 +213,21 @@ de Lichii), puis **fais remesurer MKW à Ramzi après chaque gros ajout**, pour 
 des fps. Suspects côté Hortensia : le pacing GSV d'Orchid (`nx2_gsv.h`), les commits AMD de
 chuppatricky/sharkiix, la base Lichii et ses ports Selevet, le profil PGO. Ne republie sur `main`
 que quand c'est au moins aussi rapide que SmileyTatsu.
+
+## 14. Nuit du 6 au 7 nov : mode autonome complet
+
+Ramzi laisse son PC allumé toute la nuit. Travaille sans t'arrêter, sans attendre de réponse :
+1. Termine `perf/selevet-mkw`, en commençant par le fix SSBO 8 Mio et le réveil par événement.
+   Pousse et lance un build CI dès que c'est compilable, puis à chaque gros lot.
+2. Refais le tour **complet** de GitHub : tous les forks d'Eglantine, de Lichii et de Selevet
+   (onglet Forks, guide wichforks, recherche GitHub « eglantine », « nx2 », « switch 2
+   emulator »), toutes leurs branches, tous leurs commits, leurs PR ouvertes et fermées, leurs
+   releases et leurs tags, y compris ce qui est sorti cette nuit. Intègre tout ce qui améliore
+   les perfs ou la compatibilité, derrière des switches, en gardant les auteurs d'origine.
+3. Construis aussi `rebase/smileytatsu` à partir de la dernière version de SmileyTatsu.
+4. Quand un build est vert : publie-le en **pre-release** avec des notes complètes (section 11)
+   et écris dans HANDOFF quoi tester et dans quel ordre. Ne remplace `main` et la release stable
+   que si le build compile et démarre, et que rien ne régresse sur les autres jeux connus.
+5. Le matin, écris un résumé clair pour Ramzi : ce qui a été intégré, d'où ça vient, les builds
+   à tester (les liens), et le test MKW à faire (même course, TV et portable, réglages
+   vérifiés dans le log).
