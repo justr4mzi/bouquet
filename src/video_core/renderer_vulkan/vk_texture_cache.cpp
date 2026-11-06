@@ -2858,14 +2858,6 @@ u64 TranscodeBytes(const T& t) {
 }
 } // Anonymous namespace
 
-void TextureCacheRuntime::TickFrame() {
-    while (!pending_byte_addressed_shadows.empty() &&
-           scheduler.IsFree(pending_byte_addressed_shadows.front().tick)) {
-        pending_byte_addressed_shadows.pop_front();
-    }
-    RecycleFinishedTranscodes();
-}
-
 void TextureCacheRuntime::RecycleFinishedTranscodes() {
     if (pending_transcodes.empty() || !scheduler.IsFree(pending_transcodes.front().tick)) {
         return;
@@ -2897,6 +2889,10 @@ void TextureCacheRuntime::RecycleFinishedTranscodes() {
 
 void TextureCacheRuntime::TickFrame() {
     static constexpr u32 MAX_UNUSED_SCRATCH_FRAMES = 60;
+    while (!pending_byte_addressed_shadows.empty() &&
+           scheduler.IsFree(pending_byte_addressed_shadows.front().tick)) {
+        pending_byte_addressed_shadows.pop_front();
+    }
     RecycleFinishedTranscodes();
     std::erase_if(free_transcodes, [](PendingTranscode& t) {
         return ++t.unused_frames > MAX_UNUSED_SCRATCH_FRAMES;
