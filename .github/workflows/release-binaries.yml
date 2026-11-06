@@ -356,7 +356,7 @@ jobs:
           profile="-fprofile-use=$(cygpath -m "$PWD/eglantine.profdata") -Wno-backend-plugin \
             -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date"
           if [ '${{ matrix.train }}' = 'true' ]; then
-            profile="-fprofile-generate -DBOUQUET_PGO_GENERATE"
+            profile="-fprofile-generate -DHORTENSIA_PGO_GENERATE"
           fi
           if [ -n "${{ matrix.march }}" ]; then profile="$profile -march=${{ matrix.march }}"; fi
           # ThinLTO, as in Selevet's tuned build, with LLVM's archiver for the bitcode objects.
@@ -436,12 +436,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -x build/release/bin/bouquet
-          test -x build/release/bin/bouquet-cli
-          strip build/release/bin/bouquet build/release/bin/bouquet-cli
-          tar -czf "bouquet-${GITHUB_SHA}-${{ matrix.platform }}.tar.gz" \
-            -C build/release/bin bouquet bouquet-cli
-          ls -la "bouquet-${GITHUB_SHA}-${{ matrix.platform }}.tar.gz"
+          test -x build/release/bin/hortensia
+          test -x build/release/bin/hortensia-cli
+          strip build/release/bin/hortensia build/release/bin/hortensia-cli
+          tar -czf "hortensia-${GITHUB_SHA}-${{ matrix.platform }}.tar.gz" \
+            -C build/release/bin hortensia hortensia-cli
+          ls -la "hortensia-${GITHUB_SHA}-${{ matrix.platform }}.tar.gz"
 
       # A self-contained AppImage: linuxdeploy bundles every library the two programs need except
       # the base system ones (glibc, X11/Wayland client libraries, the GPU driver and Vulkan loader),
@@ -451,8 +451,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -x build/release/bin/bouquet
-          test -x build/release/bin/bouquet-cli
+          test -x build/release/bin/hortensia
+          test -x build/release/bin/hortensia-cli
           tools="$RUNNER_TEMP/linuxdeploy"
           mkdir -p "$tools"
           arch=$(uname -m)   # aarch64 or x86_64
@@ -461,9 +461,9 @@ jobs:
           curl -fsSL -o "$tools/linuxdeploy-plugin-qt-$arch.AppImage" \
           https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-$arch.AppImage
           chmod +x "$tools"/*.AppImage
-          # The desktop file names its icon io.github.justr4mzi.bouquet.
-          icon="$RUNNER_TEMP/io.github.justr4mzi.bouquet.png"
-          cp dist/bouquet.png "$icon"
+          # The desktop file names its icon io.github.justr4mzi.hortensia.
+          icon="$RUNNER_TEMP/io.github.justr4mzi.hortensia.png"
+          cp dist/hortensia.png "$icon"
           export APPIMAGE_EXTRACT_AND_RUN=1
           export QMAKE="$QT_ROOT_DIR/bin/qmake"
           # Include Wayland platform plugins and their graphics/shell integrations.
@@ -471,13 +471,13 @@ jobs:
           export EXTRA_PLATFORM_PLUGINS='libqwayland-egl.so;libqwayland-generic.so'
           # Embedded in the AppImage metadata; matches the release tag (build-N) plus the commit.
           export LDAI_VERSION="build-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
-          export LDAI_OUTPUT="bouquet-${GITHUB_SHA}-${{ matrix.platform }}.AppImage"
+          export LDAI_OUTPUT="hortensia-${GITHUB_SHA}-${{ matrix.platform }}.AppImage"
           export OUTPUT="$LDAI_OUTPUT"
           export ARCH="$arch"
           "$tools/linuxdeploy-$arch.AppImage" --appdir AppDir \
-            --executable build/release/bin/bouquet \
-            --executable build/release/bin/bouquet-cli \
-            --desktop-file dist/io.github.justr4mzi.bouquet.desktop \
+            --executable build/release/bin/hortensia \
+            --executable build/release/bin/hortensia-cli \
+            --desktop-file dist/io.github.justr4mzi.hortensia.desktop \
             --icon-file "$icon" \
             --plugin qt \
             --output appimage
@@ -488,12 +488,12 @@ jobs:
         if: matrix.platform == 'windows-x86_64'
         shell: pwsh
         run: |
-          foreach ($exe in 'bouquet.exe', 'bouquet-cli.exe') {
+          foreach ($exe in 'hortensia.exe', 'hortensia-cli.exe') {
             if (-not (Test-Path "build/release/bin/$exe")) {
               throw "build/release/bin/$exe was not produced"
             }
           }
-          windeployqt --release --no-translations build/release/bin/bouquet.exe
+          windeployqt --release --no-translations build/release/bin/hortensia.exe
 
       # A dynamic MinGW build is not portable on its own: windeployqt6 brings the Qt libraries and
       # plugins, then every non-system DLL the binaries and those plugins pull in gets copied next to
@@ -505,10 +505,10 @@ jobs:
           set -euo pipefail
           export PATH="/ucrt64/bin:$PATH"
           cd build/release/bin
-          test -f bouquet.exe
-          test -f bouquet-cli.exe
+          test -f hortensia.exe
+          test -f hortensia-cli.exe
           windeployqt6 --no-translations --no-compiler-runtime --no-opengl-sw \
-            --no-system-dxc-compiler --no-system-d3d-compiler bouquet.exe
+            --no-system-dxc-compiler --no-system-d3d-compiler hortensia.exe
           deps() {
             objdump -p "$1" | awk '/DLL Name:/ {print $3}' | while read -r dll; do
               [ -z "$dll" ] && continue
@@ -524,7 +524,7 @@ jobs:
               fi
             done
           }
-          for exe in bouquet.exe bouquet-cli.exe; do
+          for exe in hortensia.exe hortensia-cli.exe; do
             deps "$exe"
           done
           find . -name '*.dll' | while read -r dll; do
@@ -545,12 +545,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          app=build/release/bin/bouquet.app
-          test -x "$app/Contents/MacOS/bouquet"
-          test -x build/release/bin/bouquet-cli
-          cp build/release/bin/bouquet-cli "$app/Contents/MacOS/bouquet-cli"
+          app=build/release/bin/hortensia.app
+          test -x "$app/Contents/MacOS/hortensia"
+          test -x build/release/bin/hortensia-cli
+          cp build/release/bin/hortensia-cli "$app/Contents/MacOS/hortensia-cli"
           "$(brew --prefix qt@6)/bin/macdeployqt" "$app" \
-            -executable="$app/Contents/MacOS/bouquet-cli" -libpath="$(brew --prefix)/lib" \
+            -executable="$app/Contents/MacOS/hortensia-cli" -libpath="$(brew --prefix)/lib" \
             -always-overwrite -verbose=1
           # Qt's virtual keyboard input plugin pulls in the QML stack, which the emulator doesn't use.
           rm -f "$app/Contents/PlugIns/platforminputcontexts/libqtvirtualkeyboardplugin.dylib"
@@ -563,7 +563,7 @@ jobs:
               done
           done
           # Libraries that load their dependencies through @rpath find them in the bundle.
-          for program in bouquet bouquet-cli; do
+          for program in hortensia hortensia-cli; do
             install_name_tool -add_rpath @executable_path/../Frameworks \
               "$app/Contents/MacOS/$program" 2> /dev/null
           done
@@ -582,19 +582,19 @@ jobs:
           codesign --force --deep --sign - "$app"
           if [ -f dist/eglantine.entitlements ]; then
             codesign --force --sign - --entitlements dist/eglantine.entitlements \
-              "$app/Contents/MacOS/bouquet-cli"
+              "$app/Contents/MacOS/hortensia-cli"
             codesign --force --sign - --entitlements dist/eglantine.entitlements "$app"
           fi
           codesign --verify --deep --strict "$app"
-          ditto -c -k --keepParent "$app" "bouquet-${GITHUB_SHA}-${{ matrix.platform }}.zip"
-          ls -la "bouquet-${GITHUB_SHA}-${{ matrix.platform }}.zip"
-          # Also ship a .dmg (drag bouquet.app onto Applications).
+          ditto -c -k --keepParent "$app" "hortensia-${GITHUB_SHA}-${{ matrix.platform }}.zip"
+          ls -la "hortensia-${GITHUB_SHA}-${{ matrix.platform }}.zip"
+          # Also ship a .dmg (drag hortensia.app onto Applications).
           dmgdir=$(mktemp -d)
-          ditto "$app" "$dmgdir/bouquet.app"
+          ditto "$app" "$dmgdir/hortensia.app"
           ln -s /Applications "$dmgdir/Applications"
-          hdiutil create -volname "Bouquet" -srcfolder "$dmgdir" -ov -format UDZO \
-            "bouquet-${GITHUB_SHA}-${{ matrix.platform }}.dmg"
-          ls -la "bouquet-${GITHUB_SHA}-${{ matrix.platform }}.dmg"
+          hdiutil create -volname "Hortensia" -srcfolder "$dmgdir" -ov -format UDZO \
+            "hortensia-${GITHUB_SHA}-${{ matrix.platform }}.dmg"
+          ls -la "hortensia-${GITHUB_SHA}-${{ matrix.platform }}.dmg"
 
       # The artifact is the bin folder itself: GitHub zips artifacts on download, and uploading a
       # zip gave a zip inside a zip. The release job zips it once for the release.
@@ -602,7 +602,7 @@ jobs:
         if: matrix.platform == 'windows-x86_64'
         uses: actions/upload-artifact@v7
         with:
-          name: bouquet-${{ matrix.platform }}-${{ github.sha }}
+          name: hortensia-${{ matrix.platform }}-${{ github.sha }}
           path: build/release/bin/
           if-no-files-found: error
           retention-days: 7
@@ -611,7 +611,7 @@ jobs:
         if: matrix.mingw
         uses: actions/upload-artifact@v7
         with:
-          name: bouquet-${{ matrix.platform }}-${{ github.sha }}
+          name: hortensia-${{ matrix.platform }}-${{ github.sha }}
           path: build/release/bin/
           if-no-files-found: error
           retention-days: 7
@@ -621,10 +621,10 @@ jobs:
         if: startsWith(matrix.platform, 'linux')
         uses: actions/upload-artifact@v7
         with:
-          name: bouquet-${{ matrix.platform }}-${{ github.sha }}
+          name: hortensia-${{ matrix.platform }}-${{ github.sha }}
           path: |
-            bouquet-${{ github.sha }}-${{ matrix.platform }}.tar.gz
-            bouquet-${{ github.sha }}-${{ matrix.platform }}.AppImage
+            hortensia-${{ github.sha }}-${{ matrix.platform }}.tar.gz
+            hortensia-${{ github.sha }}-${{ matrix.platform }}.AppImage
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -634,10 +634,10 @@ jobs:
         if: startsWith(matrix.platform, 'macos')
         uses: actions/upload-artifact@v7
         with:
-          name: bouquet-${{ matrix.platform }}-${{ github.sha }}
+          name: hortensia-${{ matrix.platform }}-${{ github.sha }}
           path: |
-            bouquet-${{ github.sha }}-${{ matrix.platform }}.zip
-            bouquet-${{ github.sha }}-${{ matrix.platform }}.dmg
+            hortensia-${{ github.sha }}-${{ matrix.platform }}.zip
+            hortensia-${{ github.sha }}-${{ matrix.platform }}.dmg
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -656,7 +656,7 @@ jobs:
       - name: Download binaries
         uses: actions/download-artifact@v7
         with:
-          pattern: bouquet-*-${{ github.sha }}
+          pattern: hortensia-*-${{ github.sha }}
           path: artifacts
 
       - name: Package release files
@@ -684,14 +684,14 @@ jobs:
           done
           # Friendly names: one obvious file per system.
           rename() { [ -e "dist/$1" ] && mv "dist/$1" "dist/$2" || true; }
-          rename bouquet-windows-x86_64-pgo-avx2.zip Bouquet-Windows.zip
-          rename bouquet-windows-x86_64.zip Bouquet-Windows-Compatibility.zip
-          rename bouquet-linux-x86_64-pgo.AppImage Bouquet-Linux.AppImage
-          rename bouquet-linux-aarch64-pgo.AppImage Bouquet-Linux-ARM.AppImage
-          rename bouquet-macos-arm64.zip Bouquet-macOS.zip
+          rename hortensia-windows-x86_64-pgo-avx2.zip Hortensia-Windows.zip
+          rename hortensia-windows-x86_64.zip Hortensia-Windows-Compatibility.zip
+          rename hortensia-linux-x86_64-pgo.AppImage Hortensia-Linux.AppImage
+          rename hortensia-linux-aarch64-pgo.AppImage Hortensia-Linux-ARM.AppImage
+          rename hortensia-macos-arm64.zip Hortensia-macOS.zip
           rm -f dist/*.tar.gz
           # The PGO training build stays a workflow artifact, not a release file.
-          rm -f dist/bouquet-windows-x86_64-pgo-train.zip
+          rm -f dist/hortensia-windows-x86_64-pgo-train.zip
           ls -la dist
 
       - name: Create release
@@ -713,22 +713,22 @@ jobs:
 
           | Your computer | Download |
           | --- | --- |
-          | **Windows** (almost every PC) | [**Bouquet-Windows.zip**](${base}/Bouquet-Windows.zip) |
-          | Windows, if Bouquet doesn't start or shows graphical errors | [Bouquet-Windows-Compatibility.zip](${base}/Bouquet-Windows-Compatibility.zip) |
-          | **Linux** | [**Bouquet-Linux.AppImage**](${base}/Bouquet-Linux.AppImage) · ARM: [Bouquet-Linux-ARM.AppImage](${base}/Bouquet-Linux-ARM.AppImage) |
-          | **Mac** with Apple Silicon (M1 or newer) | [**Bouquet-macOS.zip**](${base}/Bouquet-macOS.zip) |
+          | **Windows** (almost every PC) | [**Hortensia-Windows.zip**](${base}/Hortensia-Windows.zip) |
+          | Windows, if Hortensia doesn't start or shows graphical errors | [Hortensia-Windows-Compatibility.zip](${base}/Hortensia-Windows-Compatibility.zip) |
+          | **Linux** | [**Hortensia-Linux.AppImage**](${base}/Hortensia-Linux.AppImage) · ARM: [Hortensia-Linux-ARM.AppImage](${base}/Hortensia-Linux-ARM.AppImage) |
+          | **Mac** with Apple Silicon (M1 or newer) | [**Hortensia-macOS.zip**](${base}/Hortensia-macOS.zip) |
 
           ## How to start
 
-          1. **Windows:** extract the zip into a folder (right-click, *Extract All*) and double-click \`bouquet.exe\`. If Windows warns about an unknown app, click *More info*, then *Run anyway*.
-             **Linux:** make the AppImage executable (\`chmod +x Bouquet-Linux.AppImage\`) and run it.
-             **Mac:** open the zip, drag Bouquet to Applications, then right-click it and choose *Open* the first time.
-          2. At the first start, answer **Yes** to *optimized settings*: Bouquet then sets each game up for your graphics card.
+          1. **Windows:** extract the zip into a folder (right-click, *Extract All*) and double-click \`hortensia.exe\`. If Windows warns about an unknown app, click *More info*, then *Run anyway*.
+             **Linux:** make the AppImage executable (\`chmod +x Hortensia-Linux.AppImage\`) and run it.
+             **Mac:** open the zip, drag Hortensia to Applications, then right-click it and choose *Open* the first time.
+          2. At the first start, answer **Yes** to *optimized settings*: Hortensia then sets each game up for your graphics card.
           3. Add your keys and firmware, then your games folder. The [README](https://github.com/${GITHUB_REPOSITORY}#setting-it-up) explains each step.
 
           <details><summary>Technical details</summary>
 
-          Built from \`${GITHUB_REF_NAME}\` at ${GITHUB_SHA}. Bouquet-Windows is compiled with MinGW clang, a PGO profile and x86-64-v3 (AVX2, any CPU from 2013 on); Bouquet-Windows-Compatibility is the MSVC build for any x86-64 CPU. The Linux AppImages are clang PGO builds and need glibc 2.39 or newer.
+          Built from \`${GITHUB_REF_NAME}\` at ${GITHUB_SHA}. Hortensia-Windows is compiled with MinGW clang, a PGO profile and x86-64-v3 (AVX2, any CPU from 2013 on); Hortensia-Windows-Compatibility is the MSVC build for any x86-64 CPU. The Linux AppImages are clang PGO builds and need glibc 2.39 or newer.
 
           </details>
           EOF
@@ -737,5 +737,5 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --verify-tag \
             --prerelease \
-            --title "Bouquet ${GITHUB_REF_NAME} build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})" \
+            --title "Hortensia ${GITHUB_REF_NAME} build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})" \
             --notes-file notes.md

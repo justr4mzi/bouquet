@@ -286,7 +286,7 @@ option(NIGHTLY_BUILD "Use Nightly qualifiers in the update checker and build met
 cmake_dependent_option(YUZU_ROOM "Enable dedicated room functionality" ON "NOT ANDROID" OFF)
 cmake_dependent_option(YUZU_ROOM_STANDALONE "Enable standalone room executable" ON "YUZU_ROOM" OFF)
 
-cmake_dependent_option(YUZU_CMD "Compile the bouquet-cli executable" ON "NOT ANDROID" OFF)
+cmake_dependent_option(YUZU_CMD "Compile the hortensia-cli executable" ON "NOT ANDROID" OFF)
 
 cmake_dependent_option(YUZU_CRASH_DUMPS "Compile crash dump (Minidump) support" OFF "WIN32 OR LINUX" OFF)
 
@@ -755,16 +755,16 @@ endif()
 
 # TODO: Icon/install handling n such should be put into dist/CMakeLists.txt
 if(ENABLE_QT AND UNIX AND NOT APPLE)
-    install(FILES "dist/io.github.justr4mzi.bouquet.desktop"
+    install(FILES "dist/io.github.justr4mzi.hortensia.desktop"
         DESTINATION "share/applications")
-    install(FILES "dist/bouquet.png"
+    install(FILES "dist/hortensia.png"
         DESTINATION "share/icons/hicolor/256x256/apps"
-        RENAME "io.github.justr4mzi.bouquet.png")
+        RENAME "io.github.justr4mzi.hortensia.png")
 
     # TODO: these files need to be updated.
     install(FILES "dist/dev.eden_emu.eden.xml"
         DESTINATION "share/mime/packages")
-    install(FILES "dist/io.github.justr4mzi.bouquet.metainfo.xml"
+    install(FILES "dist/io.github.justr4mzi.hortensia.metainfo.xml"
         DESTINATION "share/metainfo")
 endif()
 

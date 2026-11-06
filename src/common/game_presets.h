@@ -37,9 +37,9 @@ inline bool ApplyMarioKartWorldPreset(Values& settings, u64 program_id, bool acc
     return true;
 }
 
-// ---- Bouquet smart presets ----------------------------------------------------------------
+// ---- Hortensia smart presets ----------------------------------------------------------------
 // Applied at boot, for the session only (the saved configuration is not changed), when the
-// "optimized settings" option is on. Values come from what the forks Bouquet gathers recommend.
+// "optimized settings" option is on. Values come from what the forks Hortensia gathers recommend.
 
 inline constexpr u64 OcarinaOfTimeProgramId = 0x0400486024DEC000ULL;
 inline constexpr u64 DonkeyKongBananzaProgramId = 0x040074A01BF12000ULL;
@@ -104,7 +104,7 @@ inline const char* GpuVendorName(GpuVendor vendor) {
 
 /// Applies the optimized settings of a supported game for this session. Returns a short summary
 /// for the log, or an empty string when the game has no preset.
-inline std::string ApplyBouquetSmartPreset(Values& settings, u64 program_id, GpuVendor vendor) {
+inline std::string ApplyHortensiaSmartPreset(Values& settings, u64 program_id, GpuVendor vendor) {
     const auto session = [](auto& setting, auto value) {
         setting.SetGlobal(false);
         setting.SetValue(value);

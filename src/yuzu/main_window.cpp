@@ -567,28 +567,28 @@ MainWindow::MainWindow(bool has_broken_vulkan)
                 LibraryAppletParameters(0x010000000000100Dull, Service::AM::AppletId::QLaunch));
         }
     }
-    // Bouquet: Emulation > "Optimized settings per game" turns the smart presets on and off.
+    // Hortensia: Emulation > "Optimized settings per game" turns the smart presets on and off.
     {
         QAction* const smart = ui->menu_Emulation->addAction(tr("Optimized Settings per Game"));
         smart->setCheckable(true);
-        smart->setChecked(Settings::values.bouquet_smart_presets.GetValue());
+        smart->setChecked(Settings::values.hortensia_smart_presets.GetValue());
         connect(smart, &QAction::toggled, this, [this](bool checked) {
-            Settings::values.bouquet_smart_presets = checked;
-            Settings::values.bouquet_smart_presets_asked = true;
+            Settings::values.hortensia_smart_presets = checked;
+            Settings::values.hortensia_smart_presets_asked = true;
             config->SaveAllValues();
         });
-        bouquet_smart_presets_action = smart;
+        hortensia_smart_presets_action = smart;
     }
-    // Bouquet: Help > Create Bug Report gathers what a report needs in one folder.
+    // Hortensia: Help > Create Bug Report gathers what a report needs in one folder.
     {
         QAction* const report = ui->menu_Help->addAction(tr("Create Bug Report..."));
         connect(report, &QAction::triggered, this, &MainWindow::OnCreateBugReport);
     }
-    // Bouquet: offer the optimized settings once, at the first start.
-    if (!Settings::values.bouquet_smart_presets_asked.GetValue()) {
+    // Hortensia: offer the optimized settings once, at the first start.
+    if (!Settings::values.hortensia_smart_presets_asked.GetValue()) {
         // A configuration imported from Lichii or Eden brings its theme along: the first start
-        // switches to Bouquet's own (Configure > General > UI can change it back).
-        UISettings::values.theme = "bouquet";
+        // switches to Hortensia's own (Configure > General > UI can change it back).
+        UISettings::values.theme = "hortensia";
         UpdateUITheme();
         // Pick the strongest GPU once: a dedicated card over the processor's integrated graphics
         // (a Ryzen with a Radeon RX card lists both, the integrated one sometimes first).
@@ -619,28 +619,28 @@ MainWindow::MainWindow(bool has_broken_vulkan)
             }
             if (best != static_cast<size_t>(Settings::values.vulkan_device.GetValue())) {
                 Settings::values.vulkan_device.SetValue(static_cast<u32>(best));
-                LOG_INFO(Frontend, "Bouquet: using GPU {} ({})", best, vk_device_records[best].name);
+                LOG_INFO(Frontend, "Hortensia: using GPU {} ({})", best, vk_device_records[best].name);
             }
         }
         QTimer::singleShot(0, this, [this] {
-            Settings::values.bouquet_smart_presets_asked = true;
-            Settings::values.bouquet_smart_presets =
+            Settings::values.hortensia_smart_presets_asked = true;
+            Settings::values.hortensia_smart_presets =
                 QMessageBox::question(
-                    this, tr("Bouquet optimized settings"),
-                    tr("Let Bouquet set the best settings for each game automatically?\n\n"
+                    this, tr("Hortensia optimized settings"),
+                    tr("Let Hortensia set the best settings for each game automatically?\n\n"
                        "When you start Mario Kart World, Ocarina of Time, Donkey Kong Bananza, "
-                       "Pokemon Pokopia or Splatoon Raiders, Bouquet applies the settings the "
+                       "Pokemon Pokopia or Splatoon Raiders, Hortensia applies the settings the "
                        "emulator forks recommend for it, adapted to your graphics card (NVIDIA, "
                        "AMD or Intel). They apply while the game runs; your saved settings are not "
                        "changed.\n\nYou can change this later in the Emulation menu (Optimized "
                        "Settings per Game)."),
                     QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes) == QMessageBox::Yes;
-            LOG_INFO(Config, "Bouquet optimized settings: {}",
-                     Settings::values.bouquet_smart_presets.GetValue());
-            if (bouquet_smart_presets_action != nullptr) {
-                const QSignalBlocker blocker{bouquet_smart_presets_action};
-                bouquet_smart_presets_action->setChecked(
-                    Settings::values.bouquet_smart_presets.GetValue());
+            LOG_INFO(Config, "Hortensia optimized settings: {}",
+                     Settings::values.hortensia_smart_presets.GetValue());
+            if (hortensia_smart_presets_action != nullptr) {
+                const QSignalBlocker blocker{hortensia_smart_presets_action};
+                hortensia_smart_presets_action->setChecked(
+                    Settings::values.hortensia_smart_presets.GetValue());
             }
             config->SaveAllValues();
         });
@@ -2093,7 +2093,7 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
     if (close_pending) {
         return;
     }
-    LOG_INFO(Frontend, "Bouquet starting...");
+    LOG_INFO(Frontend, "Hortensia starting...");
 
     if (params.program_id == 0 ||
         params.program_id > static_cast<u64>(Service::AM::AppletProgramId::MaxProgramId)) {
@@ -2127,20 +2127,20 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
         QtCommon::system->ApplySettings();
     }
 
-    // Bouquet smart presets: each supported game's optimized settings, adapted to the GPU vendor,
+    // Hortensia smart presets: each supported game's optimized settings, adapted to the GPU vendor,
     // applied for this session without asking.
-    if (Settings::values.bouquet_smart_presets.GetValue()) {
+    if (Settings::values.hortensia_smart_presets.GetValue()) {
         Settings::GpuVendor vendor = Settings::GpuVendor::Unknown;
         const auto device = static_cast<size_t>(Settings::values.vulkan_device.GetValue());
         if (device < vk_device_records.size()) {
             vendor = Settings::GpuVendorFromName(vk_device_records[device].name);
         }
         const std::string summary =
-            Settings::ApplyBouquetSmartPreset(Settings::values, title_id, vendor);
+            Settings::ApplyHortensiaSmartPreset(Settings::values, title_id, vendor);
         if (!summary.empty()) {
             QtCommon::system->ApplySettings();
             Settings::UpdateGPUAccuracy();
-            LOG_INFO(Config, "Bouquet optimized settings ({} GPU): {}",
+            LOG_INFO(Config, "Hortensia optimized settings ({} GPU): {}",
                      Settings::GpuVendorName(vendor), summary);
         }
         // The MKW question below is answered by the option.
@@ -2156,7 +2156,7 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
                    "Vulkan, 1x resolution, GPU Fast, asynchronous shaders, BC3, conservative VRAM, "
                    "reactive flushing off, FIFO Relaxed VSync, handheld mode, Bilinear, and "
                    "FXAA.\n\n"
-                   "They apply to Mario Kart World until Bouquet is closed. Your saved settings "
+                   "They apply to Mario Kart World until Hortensia is closed. Your saved settings "
                    "are not changed."),
                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes;
         LOG_INFO(Config, "MKW recommended settings accepted: {}", use_recommended_mkw_settings);
@@ -4197,7 +4197,7 @@ void MainWindow::OnCreateBugReport() {
     namespace fs = std::filesystem;
     const QString desktop = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
     const QString folder_name =
-        QStringLiteral("Bouquet-bug-report-%1")
+        QStringLiteral("Hortensia-bug-report-%1")
             .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmm")));
     const fs::path folder = fs::path{desktop.toStdU16String()} / folder_name.toStdU16String();
     std::error_code error;
@@ -4214,14 +4214,14 @@ void MainWindow::OnCreateBugReport() {
         }
     };
     const fs::path log_dir = Common::FS::GetEdenPath(Common::FS::EdenPath::LogDir);
-    copy(log_dir / "eden_log.txt", "eden_log.txt");
-    copy(log_dir / "eden_log.txt.old", "eden_log.txt.old");
+    copy(log_dir / "hortensia_log.txt", "hortensia_log.txt");
+    copy(log_dir / "hortensia_log.txt.old", "hortensia_log.txt.old");
     const fs::path config_dir = Common::FS::GetEdenPath(Common::FS::EdenPath::ConfigDir);
     copy(config_dir / "qt-config.ini", "qt-config.ini");
     copy(Common::FS::GetEdenPath(Common::FS::EdenPath::EdenDir) / "nx2_switches.txt",
          "nx2_switches (yours).txt");
 
-    std::string info = fmt::format("Bouquet {} ({})\n", Common::g_build_version,
+    std::string info = fmt::format("Hortensia {} ({})\n", Common::g_build_version,
                                    Common::g_build_release_platform);
     info += fmt::format("OS: {}\n", QSysInfo::prettyProductName().toStdString());
 #ifdef ARCHITECTURE_x86_64
@@ -4234,7 +4234,7 @@ void MainWindow::OnCreateBugReport() {
                             vk_device_records[i].name);
     }
     info += fmt::format("Optimized settings per game: {}\n",
-                        Settings::values.bouquet_smart_presets.GetValue() ? "on" : "off");
+                        Settings::values.hortensia_smart_presets.GetValue() ? "on" : "off");
     std::ofstream{folder / "system.txt"} << info;
 
     QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromStdU16String(folder.u16string())));
@@ -4242,8 +4242,8 @@ void MainWindow::OnCreateBugReport() {
         this, tr("Create Bug Report"),
         tr("The bug report is on your desktop, in the folder %1.\n\nIt holds your log, your "
            "settings, your nx2_switches.txt and your PC's CPU and graphics card. Zip it and attach "
-           "it to an issue on github.com/justr4mzi/bouquet, with what you did and what went "
-           "wrong. Close Bouquet first if a game was running, so the log is complete.")
+           "it to an issue on github.com/justr4mzi/hortensia, with what you did and what went "
+           "wrong. Close Hortensia first if a game was running, so the log is complete.")
             .arg(folder_name));
 }
 
@@ -5184,7 +5184,7 @@ void MainWindow::OnCheckGraphicsBackend() {
         UISettings::values.gui_force_x11.SetValue(true);
         GraphicsBackend::SetForceX11(true);
         QMessageBox::information(this, tr("Restart Required"),
-                                 tr("Restart Bouquet to apply the X11 backend."));
+                                 tr("Restart Hortensia to apply the X11 backend."));
     }
 }
 #endif
@@ -5303,8 +5303,8 @@ bool MainWindow::ConfirmClose() {
         UISettings::values.confirm_before_stopping.GetValue() == ConfirmStop::Ask_Based_On_Game)
         return true;
 
-    const auto text = tr("Are you sure you want to close Bouquet?");
-    return question(this, tr("Bouquet"), text);
+    const auto text = tr("Are you sure you want to close Hortensia?");
+    return question(this, tr("Hortensia"), text);
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
@@ -5410,7 +5410,7 @@ bool MainWindow::ConfirmChangeGame() {
 
     // Use custom question to link controller navigation
     return question(
-        this, tr("Bouquet"),
+        this, tr("Hortensia"),
         tr("Are you sure you want to stop the emulation? Any unsaved progress will be lost."),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
 }
@@ -5419,10 +5419,10 @@ bool MainWindow::ConfirmForceLockedExit() {
     if (QtCommon::emu_thread == nullptr)
         return true;
 
-    const auto text = tr("The currently running application has requested Bouquet to not exit.\n\n"
+    const auto text = tr("The currently running application has requested Hortensia to not exit.\n\n"
                          "Would you like to bypass this and exit anyway?");
 
-    return question(this, tr("Bouquet"), text);
+    return question(this, tr("Hortensia"), text);
 }
 
 void MainWindow::RequestGameExit() {

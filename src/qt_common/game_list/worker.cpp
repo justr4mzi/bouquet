@@ -265,7 +265,7 @@ QList<QStandardItem*> MakeGameListEntry(const std::string& path, const std::stri
                                         const PlayTime::PlayTimeManager& play_time_manager,
                                         const FileSys::PatchManager& patch) {
     auto const file_type = loader.GetFileType();
-    // Bouquet: name the console next to the file type. Switch 2 titles use program IDs starting
+    // Hortensia: name the console next to the file type. Switch 2 titles use program IDs starting
     // with 04, Switch 1 titles 01.
     const u8 program_platform = static_cast<u8>(program_id >> 56);
     const QString platform_string = program_platform == 0x04   ? QStringLiteral("Switch 2")

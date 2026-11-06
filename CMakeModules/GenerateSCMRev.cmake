@@ -37,15 +37,15 @@ set(GIT_DESC ${BUILD_VERSION})
 
 # Generate cpp with Git revision from template
 
-set(BUILD_AUTO_UPDATE_STABLE_REPO "justr4mzi/bouquet")
+set(BUILD_AUTO_UPDATE_STABLE_REPO "justr4mzi/hortensia")
 set(BUILD_AUTO_UPDATE_STABLE_API "api.github.com")
-set(BUILD_AUTO_UPDATE_API_PATH "/repos/justr4mzi/bouquet/releases?per_page=100")
+set(BUILD_AUTO_UPDATE_API_PATH "/repos/justr4mzi/hortensia/releases?per_page=100")
 set(BUILD_AUTO_UPDATE_WEBSITE "https://github.com")
-set(BUILD_AUTO_UPDATE_REPO "justr4mzi/bouquet")
+set(BUILD_AUTO_UPDATE_REPO "justr4mzi/hortensia")
 if (NIGHTLY_BUILD)
-    set(REPO_NAME "Bouquet Nightly")
+    set(REPO_NAME "Hortensia Nightly")
 else()
-    set(REPO_NAME "Bouquet")
+    set(REPO_NAME "Hortensia")
 endif()
 
 set(BUILD_ID ${GIT_REFSPEC})

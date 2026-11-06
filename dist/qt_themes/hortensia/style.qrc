@@ -1,10 +1,10 @@
 <!--
-SPDX-FileCopyrightText: 2019 yuzu Emulator Project, 2026 Bouquet
+SPDX-FileCopyrightText: 2019 yuzu Emulator Project, 2026 Hortensia
 SPDX-License-Identifier: GPL-2.0-or-later
 -->
 
 <RCC>
-    <qresource prefix="icons/bouquet">
+    <qresource prefix="icons/hortensia">
         <file alias="index.theme">icons/index.theme</file>
         <file alias="16x16/lock.png">../colorful_dark/icons/16x16/lock.png</file>
         <file alias="16x16/view-refresh.png">../colorful_dark/icons/16x16/view-refresh.png</file>
@@ -51,7 +51,7 @@ SPDX-License-Identifier: GPL-2.0-or-later
         <file alias="rc/radio_unchecked_focus.png">../qdarkstyle/rc/radio_unchecked_focus.png</file>
         <file alias="rc/radio_unchecked.png">../qdarkstyle/rc/radio_unchecked.png</file>
     </qresource>
-    <qresource prefix="bouquet">
+    <qresource prefix="hortensia">
         <file>style.qss</file>
     </qresource>
 </RCC>

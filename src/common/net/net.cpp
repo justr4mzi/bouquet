@@ -23,18 +23,18 @@ std::vector<Asset> Release::GetPlatformAssets() const {
 }
 
 std::vector<Asset> Release::GetPlatformAssets(std::string_view platform) const {
-    // Bouquet releases carry one friendly file name per system (release-binaries.yml).
+    // Hortensia releases carry one friendly file name per system (release-binaries.yml).
     std::string_view filename;
     if (platform == "windows-x86_64-pgo-avx2" || platform == "windows-x86_64-pgo") {
-        filename = "Bouquet-Windows.zip";
+        filename = "Hortensia-Windows.zip";
     } else if (platform == "windows-x86_64") {
-        filename = "Bouquet-Windows-Compatibility.zip";
+        filename = "Hortensia-Windows-Compatibility.zip";
     } else if (platform == "linux-x86_64" || platform == "linux-x86_64-pgo") {
-        filename = "Bouquet-Linux.AppImage";
+        filename = "Hortensia-Linux.AppImage";
     } else if (platform == "linux-aarch64" || platform == "linux-aarch64-pgo") {
-        filename = "Bouquet-Linux-ARM.AppImage";
+        filename = "Hortensia-Linux-ARM.AppImage";
     } else if (platform == "macos-arm64") {
-        filename = "Bouquet-macOS.zip";
+        filename = "Hortensia-macOS.zip";
     } else {
         return {};
     }
@@ -43,7 +43,7 @@ std::vector<Asset> Release::GetPlatformAssets(std::string_view platform) const {
     const auto path = fmt::format("/{}/releases/download/{}/", Common::g_build_auto_update_repo, tag);
     for (const auto& asset : assets) {
         if (asset == host_url + path + std::string{filename}) {
-            return {{.name = "Bouquet",
+            return {{.name = "Hortensia",
                      .url = host_url,
                      .path = path + std::string{filename},
                      .filename = std::string{filename}}};
@@ -174,7 +174,7 @@ std::optional<std::string> MakeRequest(const std::string& url, const std::string
         httplib::Request request{
             .method = "GET",
             .path = path,
-            .headers = {{"Accept", "application/vnd.github+json"}, {"User-Agent", "Bouquet"}},
+            .headers = {{"Accept", "application/vnd.github+json"}, {"User-Agent", "Hortensia"}},
         };
 
         client->set_follow_location(true);
@@ -207,7 +207,7 @@ std::vector<Release> GetReleases() {
     const auto body = GetReleasesBody();
 
     if (!body) {
-        LOG_WARNING(Common, "Failed to get Bouquet releases");
+        LOG_WARNING(Common, "Failed to get Hortensia releases");
         return {};
     }
 

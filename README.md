@@ -4,10 +4,10 @@ SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
 <p align="center">
-  <img src="dist/branding/bouquet_icon.png" alt="Bouquet" width="180">
+  <img src="dist/branding/hortensia_icon.png" alt="Hortensia" width="180">
 </p>
 
-<h1 align="center">Bouquet</h1>
+<h1 align="center">Hortensia</h1>
 
 <p align="center">
   <b>An experimental Nintendo Switch 2 emulator that gathers the best work of the Eglantine forks in one build.</b><br>
@@ -18,78 +18,78 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 ## Contents
 
-- [What is Bouquet?](#what-is-bouquet)
+- [What is Hortensia?](#what-is-hortensia)
 - [Download](#download)
 - [Setting it up](#setting-it-up)
 - [Optimized settings per game](#optimized-settings-per-game)
 - [Recommended settings per game](#recommended-settings-per-game)
 - [What's inside, fork by fork](#whats-inside-fork-by-fork)
-- [Every switch Bouquet adds](#every-switch-bouquet-adds)
+- [Every switch Hortensia adds](#every-switch-hortensia-adds)
 - [What was left out, and why](#what-was-left-out-and-why)
 - [Reporting a problem](#reporting-a-problem)
 - [Known issues](#known-issues)
 - [Building from source](#building-from-source)
 - [Credits](#credits)
 
-## What is Bouquet?
+## What is Hortensia?
 
 The Switch 2 emulation scene moves fast and is spread over many forks of
 [Eglantine](https://github.com/Djihads80/Eglantine): one is best for Mario Kart World, another
-for Ocarina of Time, another for AMD graphics cards… Bouquet picks the best changes from each of
+for Ocarina of Time, another for AMD graphics cards… Hortensia picks the best changes from each of
 them and puts them in a single emulator, so you don't have to juggle five builds.
 
-Bouquet starts from **[Lichii](https://github.com/zortos293/Lichii)** (`nx2`, the most active
+Hortensia starts from **[Lichii](https://github.com/zortos293/Lichii)** (`nx2`, the most active
 fork, with the best Ocarina of Time support) and adds work from the forks listed below. **Every
-change keeps its original author** in the git history, and every optimization Bouquet adds can be
-switched off (see [Every switch Bouquet adds](#every-switch-bouquet-adds)).
+change keeps its original author** in the git history, and every optimization Hortensia adds can be
+switched off (see [Every switch Hortensia adds](#every-switch-hortensia-adds)).
 
 > [!WARNING]
 > This is experimental software. Games may crash, show graphical errors or run slowly.
-> You need your own legally dumped games, keys and firmware. Bouquet ships none of them.
+> You need your own legally dumped games, keys and firmware. Hortensia ships none of them.
 
 ## Download
 
-Get the latest build from the **[Releases page](https://github.com/justr4mzi/bouquet/releases)**.
+Get the latest build from the **[Releases page](https://github.com/justr4mzi/hortensia/releases)**.
 There is **one file per system**:
 
 | Your computer | Download |
 | --- | --- |
-| **Windows** (almost every PC) | **`Bouquet-Windows.zip`** |
-| Windows, only if Bouquet doesn't start or shows graphical errors | `Bouquet-Windows-Compatibility.zip` |
-| **Linux** | **`Bouquet-Linux.AppImage`** (`Bouquet-Linux-ARM.AppImage` on ARM) |
-| **Mac** with Apple Silicon (M1 or newer) | **`Bouquet-macOS.zip`** |
+| **Windows** (almost every PC) | **`Hortensia-Windows.zip`** |
+| Windows, only if Hortensia doesn't start or shows graphical errors | `Hortensia-Windows-Compatibility.zip` |
+| **Linux** | **`Hortensia-Linux.AppImage`** (`Hortensia-Linux-ARM.AppImage` on ARM) |
+| **Mac** with Apple Silicon (M1 or newer) | **`Hortensia-macOS.zip`** |
 
 <details><summary>What's the difference between the two Windows files?</summary>
 
-- `Bouquet-Windows.zip` is compiled with clang, a performance profile (PGO) and instructions of
+- `Hortensia-Windows.zip` is compiled with clang, a performance profile (PGO) and instructions of
   CPUs from 2013 on (AVX2, x86-64-v3), like Selevet's tuned build: the fastest.
-- `Bouquet-Windows-Compatibility.zip` is compiled with Microsoft's compiler for any 64-bit CPU.
+- `Hortensia-Windows-Compatibility.zip` is compiled with Microsoft's compiler for any 64-bit CPU.
   Use it only if the first one doesn't start (very old CPU) or draws something wrong.
 
 </details>
 
 ## Setting it up
 
-1. **Extract** the zip into a folder (right-click → *Extract All*), for example `C:\Games\Bouquet`,
-   and double-click `bouquet.exe`. If Windows says it protected your PC, click **More info →
-   Run anyway** (Bouquet isn't signed).
-   - Linux: `chmod +x Bouquet-Linux.AppImage`, then run it.
-   - Mac: open the zip, drag Bouquet to Applications, right-click it → **Open** the first time.
-2. **First start.** Bouquet does a few things for you:
+1. **Extract** the zip into a folder (right-click → *Extract All*), for example `C:\Games\Hortensia`,
+   and double-click `hortensia.exe`. If Windows says it protected your PC, click **More info →
+   Run anyway** (Hortensia isn't signed).
+   - Linux: `chmod +x Hortensia-Linux.AppImage`, then run it.
+   - Mac: open the zip, drag Hortensia to Applications, right-click it → **Open** the first time.
+2. **First start.** Hortensia does a few things for you:
    - If you used **Lichii** or **Eden/Eglantine** before, it offers to **import** your keys,
      firmware, saves, settings and **shader caches** (no stutter in games you already played).
    - It picks your **dedicated graphics card** over the processor's integrated graphics.
    - It asks about **optimized settings**: answer **Yes** (see below).
-   - It switches to the **Bouquet theme** (Emulation → Configure → General → UI to change it).
-3. **Keys and firmware** (skip this if you imported them). Bouquet keeps its own data folder, so
+   - It switches to the **Hortensia theme** (Emulation → Configure → General → UI to change it).
+3. **Keys and firmware** (skip this if you imported them). Hortensia keeps its own data folder, so
    it never touches the config of your other emulators:
-   - Windows: `%APPDATA%\bouquet` (type it in the Explorer address bar)
-   - Linux: `~/.local/share/bouquet` and `~/.config/bouquet`
-   - macOS: `~/Library/Application Support/bouquet`
+   - Windows: `%APPDATA%\hortensia` (type it in the Explorer address bar)
+   - Linux: `~/.local/share/hortensia` and `~/.config/hortensia`
+   - macOS: `~/Library/Application Support/hortensia`
 
    Copy your `keys` folder there and install your firmware from the **File** menu, exactly as you
    did for Eglantine, Lichii or Eden.
-   **Portable mode:** create an empty folder named `user` next to `bouquet.exe` and Bouquet keeps
+   **Portable mode:** create an empty folder named `user` next to `hortensia.exe` and Hortensia keeps
    everything in it instead.
 4. **Add your games folder** (double-click the game list). Each game shows **Switch 1** or
    **Switch 2** under its name. The first launch of a game builds its shaders: it stutters for a
@@ -97,22 +97,22 @@ There is **one file per system**:
 
 ### Using someone else's shader cache
 
-Bouquet reads Lichii's cache files (`vulkan.fork-v53.bin`). Put a game's cache folder (named after
+Hortensia reads Lichii's cache files (`vulkan.fork-v53.bin`). Put a game's cache folder (named after
 its program ID, for example `0400486024dec000` for Ocarina of Time) in
-`%APPDATA%\bouquet\shader\` on Windows. Only the `vulkan.fork-v53.bin` and
+`%APPDATA%\hortensia\shader\` on Windows. Only the `vulkan.fork-v53.bin` and
 `vulkan_used.fork-v53.bin` files matter; files from other builds (`-frizti.fork-v52`, …) are
 ignored. The guest shader list works on any graphics card; the driver's own cache is rebuilt for
 yours.
 
 ## Optimized settings per game
 
-At its first start, Bouquet asks whether it should **set the best settings for each game
+At its first start, Hortensia asks whether it should **set the best settings for each game
 automatically**. With the option on (it can be changed any time in **Emulation → Optimized
 Settings per Game**), starting a supported game applies its settings for that session only:
 your saved settings are never changed, and the log says what was applied
-(`Bouquet optimized settings (AMD GPU): …`).
+(`Hortensia optimized settings (AMD GPU): …`).
 
-Bouquet reads your **graphics card's vendor** from the selected Vulkan device:
+Hortensia reads your **graphics card's vendor** from the selected Vulkan device:
 
 - **NVIDIA and AMD** (dedicated cards): 1x resolution, uncompressed ASTC textures in Mario Kart
   World.
@@ -129,13 +129,13 @@ off for that game (Selevet saw it with memory operation syncs off on an older bu
 | Pokémon Pokopia | Vulkan, asynchronous shaders |
 | Splatoon Raiders | Vulkan, asynchronous shaders |
 
-With the option off, Bouquet behaves like Lichii (it asks about Mario Kart World's settings once
+With the option off, Hortensia behaves like Lichii (it asks about Mario Kart World's settings once
 per session).
 
 ## Recommended settings per game
 
 Each tip below names **where it comes from and on which PC it was measured.** These are the
-measurements published by the fork authors, not tests of Bouquet itself: your results will
+measurements published by the fork authors, not tests of Hortensia itself: your results will
 differ with your hardware and driver. Settings live in **Emulation → Configure**.
 
 ### General (every game)
@@ -153,7 +153,7 @@ differ with your hardware and driver. Settings live in **Emulation → Configure
 | Graphics → Advanced → **Mario Kart World: dynamic FPS (experimental)** | On (restart the game after changing it) |
 | Resolution | 1x (0.5x on weaker GPUs) |
 
-- Bouquet holds a new swap interval back for 120 presents in Mario Kart World
+- Hortensia holds a new swap interval back for 120 presents in Mario Kart World
   (`EDEN_NX2_SWAP_STABLE`): without it the game flips between 60 and 30 fps pacing and fell from
   about 40 to 20-30 fps.
 - **Measured by Selevet** on a Ryzen 5 5500, RTX 3050 8 GB, 16 GB RAM: **55.5 fps median** at
@@ -168,10 +168,10 @@ differ with your hardware and driver. Settings live in **Emulation → Configure
 | --- | --- |
 | Add-Ons → **Max Resolution (built-in)** | On (default) |
 | Add-Ons → **Dynamic FPS (built-in)** | On (default): the game keeps its normal speed below 60 fps |
-| `nx2_switches.txt` → `EDEN_NX2_OOT_VISUAL_WORKAROUND` | On in Bouquet's file (less fog haze and glare) |
+| `nx2_switches.txt` → `EDEN_NX2_OOT_VISUAL_WORKAROUND` | On in Hortensia's file (less fog haze and glare) |
 
 - **Measured by zortos293 (Lichii)** in Kokiri Forest on an i7-12700K + **RX 7800 XT (AMD)**:
-  25.97 → **30.75 fps** average with the GPU-thread optimizations Bouquet includes.
+  25.97 → **30.75 fps** average with the GPU-thread optimizations Hortensia includes.
 - **Measured by Selevet** on a Ryzen 5 5500 + RTX 3050: about 26-28 fps in Kokiri Forest. The
   emulator's GPU threads are the limit, not the graphics card.
 - If the game crashes on an AMD card, try `EDEN_NX2_GPU_TIME_DIV=4` (zortos293's "K4" test) in
@@ -191,7 +191,7 @@ differ with your hardware and driver. Settings live in **Emulation → Configure
 
 ### Pokémon Pokopia
 
-- Works out of the box. Bouquet doesn't pace storage reads for Switch 2 games (from
+- Works out of the box. Hortensia doesn't pace storage reads for Switch 2 games (from
   **notsapinho**), which made Pokopia boot about **13 s faster** in his tests.
 - notsapinho measured world frames at 8.4-8.6 ms on his own build (120 Hz mod).
 
@@ -242,13 +242,13 @@ Everything Lichii had on 6 November 2026 (17:00), including:
 | Lichii experiments (zortos293) | "K4" GPU time divisor; parallel render pass recording prototype; Ocarina visual workaround | `GPU_TIME_DIV`, `PARALLEL_RECORD`, `OOT_VISUAL_WORKAROUND` |
 | [chuppatricky's AMD test builds](https://github.com/chuppatricky/Lichii) (chuppatricky, Matt Artist, sharkiix), v13 | **AMD fixes**: colour targets a fragment shader never writes are masked (dark outlines around Ocarina's castle on AMD); NaN-defined min/max/clamp; misaligned 64/128-bit and vector memory accesses split into words; occlusion query resolves wait once on AMD; compute writes ordered before later draws; sampler comparison dropped for non-depth samples; blend state rebuilt without dynamic blend; four Ocarina fragment shaders and opt-in graphics pipelines built unoptimized on old AMD drivers; query reports written once the GPU produced them; GPU breadcrumbs that name the work running when the GPU hangs, and the memory budget in the log; null texture for handles past the pool; video frames invalidated with GPU writes kept; more shader register fixes; **display frame rate in the status bar** and a **frame generation button** | `EDEN_NX2_AMD_SAFE_COMPILE_GRAPHICS` |
 | [Frizti](https://github.com/Frizti/Lichii) | Command list fetch wait skip (experiment, off) | `EDEN_NX2_LIST_WAIT_SKIP` |
-| Bouquet | Optimized settings per game with GPU vendor detection; import from Lichii and Eden/Eglantine at the first start (shader caches kept); dedicated GPU picked at the first start; Bouquet theme; Switch 1 / Switch 2 label under each game; Bilinear scaling by default; built-in update check against Bouquet's releases; Lichii's cache format kept so shared caches load; MKW/DK title checks through the present's process; DMA drain skip limited to DK Bananza (Ocarina's fog reads query results this way); conflicts resolved against Lichii's newer code | — |
+| Hortensia | Optimized settings per game with GPU vendor detection; import from Lichii and Eden/Eglantine at the first start (shader caches kept); dedicated GPU picked at the first start; Hortensia theme; Switch 1 / Switch 2 label under each game; Bilinear scaling by default; built-in update check against Hortensia's releases; Lichii's cache format kept so shared caches load; MKW/DK title checks through the present's process; DMA drain skip limited to DK Bananza (Ocarina's fog reads query results this way); conflicts resolved against Lichii's newer code | — |
 
-## Every switch Bouquet adds
+## Every switch Hortensia adds
 
-Switches are read from `nx2_switches.txt` next to `bouquet.exe`, and from your own copy in the data
-folder (`%APPDATA%\bouquet\nx2_switches.txt` on Windows), which wins. One `NAME=VALUE` per line;
-restart Bouquet after editing. The file shipped with Bouquet lists them all in its "Bouquet"
+Switches are read from `nx2_switches.txt` next to `hortensia.exe`, and from your own copy in the data
+folder (`%APPDATA%\hortensia\nx2_switches.txt` on Windows), which wins. One `NAME=VALUE` per line;
+restart Hortensia after editing. The file shipped with Hortensia lists them all in its "Hortensia"
 section. If something looks wrong after an update, turn the switches off one at a time.
 
 | Switch | Default | Turn it… |
@@ -268,7 +268,7 @@ section. If something looks wrong after an update, turn the switches off one at 
 | `EDEN_NX2_DMA_DRAIN` | off (DK skip on) | `=1` always drain |
 | `EDEN_NX2_PACE_ONE` | on (DK) | `=0` keep DK's interval |
 | `EDEN_NX2_ASYNC_SKIP` | off | `=1` skip small draws while their pipeline builds |
-| `EDEN_NX2_OOT_VISUAL_WORKAROUND` | on in Bouquet's file (Ocarina only) | delete the line |
+| `EDEN_NX2_OOT_VISUAL_WORKAROUND` | on in Hortensia's file (Ocarina only) | delete the line |
 | `EDEN_NX2_OOT_FOG_SCALE` / `_EXPOSURE_SCALE` / `_BLOOM_EXP_SCALE` | 0.35 / 0.75 / 1.2 | lower = less haze/glare |
 | `EDEN_CPU_ACCURATE_FLOAT`, `EDEN_CPU_FUSED_FMA`, `EDEN_CPU_GLOBAL_MONITOR` | off | `=1` on |
 | `EDEN_NX2_SKIP_COMPUTE` | empty | `=hash,hash` |
@@ -280,7 +280,7 @@ section. If something looks wrong after an update, turn the switches off one at 
 
 ## What was left out, and why
 
-Being honest about the gaps helps when you compare Bouquet with another build.
+Being honest about the gaps helps when you compare Hortensia with another build.
 
 - **Lichii's "fast draw" branch** (`FAST_DRAW`, `BUFFER_SKIP`, `INLINE_INVALIDATE`,
   `DYNAMIC_SKIP`, `DMA_RANGES`, `LIST_TRUST`), which Selevet's Ocarina builds turn on: it is 181
@@ -295,17 +295,17 @@ Being honest about the gaps helps when you compare Bouquet with another build.
 - **Selevet's thread pinning** (opt-in only) and **inline CNTPCT** (needs a modified dynarmic).
 - **Pokopia FPS-mod settings (120-360 Hz)** from notsapinho: a larger settings change, planned.
 - **Frizti's newest split-thread work** (acquire precheck, macro reads served from queued constant
-  buffer uploads): it overlaps the Selevet acquire optimizations already in Bouquet and conflicts
+  buffer uploads): it overlaps the Selevet acquire optimizations already in Hortensia and conflicts
   with them; left for a later version. Most of Frizti's earlier work is in Lichii (#194).
-- **chuppatricky's Ocarina fog modes** (`EDEN_NX2_OOT_FOG`): Bouquet keeps Selevet's tunable fog,
+- **chuppatricky's Ocarina fog modes** (`EDEN_NX2_OOT_FOG`): Hortensia keeps Selevet's tunable fog,
   exposure and bloom instead. His scheduler change for the split's submits conflicts with
   Lichii's newer code.
 
 ## Reporting a problem
 
-Open an [issue](https://github.com/justr4mzi/bouquet/issues) and attach:
+Open an [issue](https://github.com/justr4mzi/hortensia/issues) and attach:
 
-- the log file `eden_log.txt` (the **Log Folder** entry in the menu bar opens its folder);
+- the log file `hortensia_log.txt` (the **Log Folder** entry in the menu bar opens its folder);
 - the game and its version, your CPU, your graphics card and its driver version;
 - which build you used (the zip name), whether optimized settings are on, and what you changed
   in `nx2_switches.txt`;
@@ -322,14 +322,14 @@ Open an [issue](https://github.com/justr4mzi/bouquet/issues) and attach:
 
 ## Building from source
 
-Bouquet builds like Eglantine and Lichii: see the [build guide](docs/Build.md). The release
+Hortensia builds like Eglantine and Lichii: see the [build guide](docs/Build.md). The release
 binaries come from [.github/workflows/release-binaries.yml](.github/workflows/release-binaries.yml)
 (Windows MSVC, Windows MinGW clang PGO and PGO AVX2, Linux x86_64/aarch64 standard and PGO,
 macOS arm64).
 
 ## Credits
 
-Bouquet only gathers other people's work. All credit goes to the developers of
+Hortensia only gathers other people's work. All credit goes to the developers of
 [Lichii](https://github.com/zortos293/Lichii) (zortos293, Frizti, Kajcsi, Inc0rporate, Shrxmy and
 others), [Eglantine](https://github.com/Djihads80/Eglantine) (Djihads80, Jonas and others),
 [Selevet](https://github.com/sylvieistaken/selevet-eglantine),
@@ -337,13 +337,13 @@ others), [Eglantine](https://github.com/Djihads80/Eglantine) (Djihads80, Jonas a
 [Orchid](https://github.com/MythosOfs/Orchid) (MythosOfs),
 [notsapinho's fork](https://github.com/notsapinho/Eglantine),
 [Eglantine-DKB](https://github.com/monteger8/Eglantine-DKB) (monteger8, adamd), ZendNevs,
-[Eden](https://git.eden-emu.dev/eden-emu/eden) and yuzu. Please don't report Bouquet bugs to them.
+[Eden](https://git.eden-emu.dev/eden-emu/eden) and yuzu. Please don't report Hortensia bugs to them.
 
-Bouquet is put together by [justr4mzi](https://github.com/justr4mzi).
+Hortensia is put together by [justr4mzi](https://github.com/justr4mzi).
 
 ## License
 
 GPL-3.0-or-later, like Eden and Eglantine. See [LICENSE.txt](LICENSE.txt).
 
-*"Nintendo Switch" is a trademark of Nintendo. Bouquet is not affiliated with Nintendo in any way.
+*"Nintendo Switch" is a trademark of Nintendo. Hortensia is not affiliated with Nintendo in any way.
 This software should not be used to play games you have not legally obtained.*

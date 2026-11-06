@@ -61,11 +61,11 @@ enum class Theme {
     DarkColorful,
     MidnightBlue,
     MidnightBlueColorful,
-    Bouquet,
+    Hortensia,
 };
 
-// Bouquet's own dark theme (pink and orchid) everywhere.
-static constexpr Theme default_theme{Theme::Bouquet};
+// Hortensia's own dark theme (pink and orchid) everywhere.
+static constexpr Theme default_theme{Theme::Hortensia};
 
 using Themes = std::array<std::pair<const char*, const char*>, 7>;
 extern const Themes themes;
