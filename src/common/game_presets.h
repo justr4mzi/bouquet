@@ -119,22 +119,18 @@ inline std::string ApplyHortensiaSmartPreset(Values& settings, u64 program_id, G
         SetMarioKartWorldRecommendedSettings(settings, false);
         session(settings.resolution_setup, resolution);
         session(settings.mkw_dynamic_fps, true);
-        // Selevet's tuned Mario Kart World settings (55.5 fps median at 1x on a Ryzen 5 5500 and
-        // an RTX 3050): Unsafe CPU and DMA accuracy, Immediate GPU fences, no memory operation
-        // syncs.
+        // The settings Selevet's build runs Mario Kart World with, as its log on a Ryzen 5 5600
+        // and an RX 6700 XT showed (about 10 fps more than this build had with Immediate fences,
+        // uncompressed ASTC and synchronous presentation): Unsafe CPU and DMA accuracy, default
+        // GPU fences, no memory operation syncs, BC3 textures, asynchronous presentation.
         session(settings.cpu_accuracy, CpuAccuracy::Unsafe);
         session(settings.dma_accuracy, DmaAccuracy::Unsafe);
-        session(settings.gpu_fence_behavior, GpuFenceBehavior::Immediate);
+        session(settings.gpu_fence_behavior, GpuFenceBehavior::Default);
         session(settings.sync_memory_operations, false);
-        if (!integrated) {
-            // Selevet: BC3 recompression darkened the track's ground; discrete GPUs have the
-            // memory for uncompressed ASTC.
-            session(settings.astc_recompression, AstcRecompression::Uncompressed);
-        }
-        return integrated ? "Mario Kart World: Lichii's recommended settings, dynamic FPS, half "
-                            "resolution"
-                          : "Mario Kart World: Lichii's recommended settings, dynamic FPS, "
-                            "uncompressed ASTC";
+        session(settings.astc_recompression, AstcRecompression::Bc3);
+        session(settings.async_presentation, true);
+        return integrated ? "Mario Kart World: Selevet's settings, dynamic FPS, half resolution"
+                          : "Mario Kart World: Selevet's settings, dynamic FPS";
     case OcarinaOfTimeProgramId:
         session(settings.renderer_backend, RendererBackend::Vulkan);
         session(settings.resolution_setup, resolution);
