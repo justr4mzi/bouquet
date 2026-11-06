@@ -154,3 +154,23 @@ Suis les règles des guides de thème sombre (Material Design dark theme, guides
   (aujourd'hui rouge/orange/blanc mélangés).
 - Propose 2-3 variantes (captures avant/après) à Ramzi avant de choisir, et garde l'ancien
   thème dans le menu des thèmes. Option bonus : un thème clair doux.
+
+## 10. URGENT : le preset MKW de la release est le mauvais (bloque à ~30 fps)
+
+La release du 6 nov (`main` 3edd84fd, « build-10 ») contient encore l'**ancien** preset MKW
+(« Lichii's recommended settings, dynamic FPS, uncompressed ASTC ») : `mkw_dynamic_fps=true`,
+fences Immediate, ASTC non compressé, présentation synchrone, CPU Accurate, VSync FifoRelaxed.
+Résultat chez Ramzi : MKW bloqué entre 22 et 30 fps, alors que SmileyTatsu et Selevet font
+33-40 avec les réglages de la section 1. Le patch « dynamic FPS » semble caler le jeu sur 30
+dès qu'il ne tient pas 60.
+Le preset corrigé (aligné sur Selevet) est sur `dev` mais **pas sur `main`**. À faire :
+1. Dans `src/common/game_presets.h`, MKW = **exactement** les réglages de la section 1, pour AMD,
+   NVIDIA et Intel : CPU Unsafe, DMA Unsafe, GPU accuracy Low, fences Default, VRAM Aggressive,
+   ASTC BC3, présentation asynchrone, shaders asynchrones, reactive flushing off, sync memory off,
+   1x, Bilinear, VSync Fifo, frame gen off et **`mkw_dynamic_fps` off**. Vérifie aussi
+   `SetMarioKartWorldRecommendedSettings` (VRAM Conservative et FifoRelaxed : à aligner) et le
+   texte du log « Hortensia optimized settings ».
+2. Mets ces réglages aussi comme valeurs par défaut d'une nouvelle installation, là où c'est
+   possible sans casser les autres jeux.
+3. Merge sur `main` et republie la release. Préviens Ramzi pour qu'il remesure avec le preset
+   activé.
