@@ -138,7 +138,14 @@ inline std::string ApplyBouquetSmartPreset(Values& settings, u64 program_id, Gpu
         session(settings.resolution_setup, resolution);
         session(settings.use_asynchronous_shaders, true);
         session(settings.dk_dynamic_fps, true);
-        return "Donkey Kong Bananza: Vulkan, asynchronous shaders, dynamic FPS";
+        // Orchid (measured on AMD): with GPU accuracy High the split GPU thread stays off and the
+        // game slows down below 30 fps; Low without reactive flushing keeps it at full speed. With
+        // the Boost GPU clock it stays at 1080p and mostly at interval 1.
+        session(settings.gpu_accuracy, GpuAccuracy::Low);
+        session(settings.use_reactive_flushing, false);
+        session(settings.gpu_clock, GpuClock::Boost);
+        return "Donkey Kong Bananza: Vulkan, asynchronous shaders, dynamic FPS, GPU accuracy Fast, "
+               "reactive flushing off, Boost GPU clock";
     case RaidersProgramId:
         session(settings.renderer_backend, RendererBackend::Vulkan);
         session(settings.resolution_setup, resolution);
