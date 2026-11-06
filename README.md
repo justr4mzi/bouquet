@@ -16,6 +16,21 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 ---
 
+## Contents
+
+- [What is Bouquet?](#what-is-bouquet)
+- [Download](#download)
+- [Setting it up](#setting-it-up)
+- [Optimized settings per game](#optimized-settings-per-game)
+- [Recommended settings per game](#recommended-settings-per-game)
+- [What's inside, fork by fork](#whats-inside-fork-by-fork)
+- [Every switch Bouquet adds](#every-switch-bouquet-adds)
+- [What was left out, and why](#what-was-left-out-and-why)
+- [Reporting a problem](#reporting-a-problem)
+- [Known issues](#known-issues)
+- [Building from source](#building-from-source)
+- [Credits](#credits)
+
 ## What is Bouquet?
 
 The Switch 2 emulation scene moves fast and is spread over many forks of
@@ -23,10 +38,10 @@ The Switch 2 emulation scene moves fast and is spread over many forks of
 for Ocarina of Time, another for AMD graphics cards… Bouquet picks the best changes from each of
 them and puts them in a single emulator, so you don't have to juggle five builds.
 
-Bouquet starts from **[Lichii](https://github.com/zortos293/Lichii)** (the most active fork, with
-the best Ocarina of Time support) and adds work from the forks listed below. **Every change keeps
-its original author** in the git history, and every optimization Bouquet adds can be switched off
-(see [Turning an optimization off](#turning-an-optimization-off)).
+Bouquet starts from **[Lichii](https://github.com/zortos293/Lichii)** (`nx2`, the most active
+fork, with the best Ocarina of Time support) and adds work from the forks listed below. **Every
+change keeps its original author** in the git history, and every optimization Bouquet adds can be
+switched off (see [Every switch Bouquet adds](#every-switch-bouquet-adds)).
 
 > [!WARNING]
 > This is experimental software. Games may crash, show graphical errors or run slowly.
@@ -41,58 +56,208 @@ Get the latest build from the **[Releases page](https://github.com/justr4mzi/bou
 | Windows, Ryzen or Intel 4th gen and newer (almost every PC from 2014 on) | `bouquet-windows-x86_64-pgo-avx2.zip` (fastest) |
 | Windows, older CPU | `bouquet-windows-x86_64-pgo.zip` |
 | Windows, graphical problems with the builds above | `bouquet-windows-x86_64.zip` (MSVC) |
-| Linux | `bouquet-linux-x86_64-pgo.AppImage` |
+| Linux x86_64 | `bouquet-linux-x86_64-pgo.AppImage` |
+| Linux ARM64 | `bouquet-linux-aarch64-pgo.AppImage` |
 | Mac with Apple Silicon (M1 and newer) | `bouquet-macos-arm64.zip` |
 
-The **PGO** builds are compiled with clang and a performance profile, the way Eden and Selevet
-build theirs. The **AVX2** build also targets modern CPUs (x86-64-v3).
+- **PGO** builds are compiled with clang and a performance profile (`eglantine.profdata`), the
+  way Eden and Lichii build theirs.
+- The **AVX2** build also targets modern CPUs (`-march=x86-64-v3`), like Selevet's tuned build.
 
 ## Setting it up
 
 1. **Extract** the zip anywhere (for example `C:\Games\Bouquet`) and run `bouquet.exe`.
-2. **Keys and firmware**: Bouquet keeps its own data folder so it never touches the config of
+2. **Keys and firmware.** Bouquet keeps its own data folder, so it never touches the config of
    your other emulators:
    - Windows: `%APPDATA%\bouquet`
    - Linux: `~/.local/share/bouquet` and `~/.config/bouquet`
    - macOS: `~/Library/Application Support/bouquet`
 
-   Copy your `keys` folder and install your firmware there (or from the **File** menu), exactly as
+   Copy your `keys` folder there and install your firmware (from the **File** menu), exactly as
    you did for Eglantine, Lichii or Eden.
-   *Portable mode:* create an empty folder named `user` next to `bouquet.exe` and Bouquet keeps
+   **Portable mode:** create an empty folder named `user` next to `bouquet.exe` and Bouquet keeps
    everything in it instead.
-3. **Add your games folder** (double-click the game list) and launch a game.
+3. **Answer the first-start question** about optimized settings (see below). Yes is recommended.
+4. **Add your games folder** (double-click the game list) and launch a game.
 
-## Recommended settings
+## Optimized settings per game
 
-| Game | Tips |
+At its first start, Bouquet asks whether it should **set the best settings for each game
+automatically**. With the option on (it can be changed any time in **Emulation → Optimized
+Settings per Game**), starting a supported game applies its settings for that session only:
+your saved settings are never changed, and the log says what was applied
+(`Bouquet optimized settings (AMD GPU): …`).
+
+Bouquet reads your **graphics card's vendor** from the selected Vulkan device:
+
+- **NVIDIA and AMD** (dedicated cards): 1x resolution, uncompressed ASTC textures in Mario Kart
+  World.
+- **Intel, Apple and Qualcomm** (integrated GPUs): half resolution, BC3-compressed textures.
+
+| Game | What is applied |
 | --- | --- |
-| **Mario Kart World** | Turn on **Mario Kart World: dynamic FPS (experimental)** in Configure → Graphics → Advanced, then restart the game. Expect drops while new tracks load their textures. |
-| **The Legend of Zelda: Ocarina of Time** | The built-in **Max Resolution** and **Dynamic FPS** patches are on by default (Add-Ons tab): the game keeps its normal speed even below 60 fps. On AMD, if parts of the picture are black or the game hangs, see [Known issues](#known-issues). |
-| **Donkey Kong Bananza** | **Donkey Kong Bananza: dynamic FPS** is on by default (same tab): the game follows real time instead of slowing down. Frame generation can be toggled in game with **Ctrl+G**. |
-| **Pokémon Pokopia** | Works out of the box. |
-| **Splatoon Raiders** | Works out of the box. |
+| Mario Kart World | Lichii's recommended settings (Vulkan, GPU accuracy Fast, asynchronous shaders, conservative VRAM, reactive flushing off, FIFO Relaxed VSync, handheld mode, ScaleForce, FXAA), **dynamic FPS on**, ASTC as above |
+| Ocarina of Time | Vulkan, asynchronous shaders (the Max Resolution and Dynamic FPS patches are on anyway) |
+| Donkey Kong Bananza | Vulkan, asynchronous shaders, dynamic FPS |
+| Pokémon Pokopia | Vulkan, asynchronous shaders |
+| Splatoon Raiders | Vulkan, asynchronous shaders |
 
-## What's inside
+With the option off, Bouquet behaves like Lichii (it asks about Mario Kart World's settings once
+per session).
 
-Bouquet = **Lichii** (`nx2`) + the changes below. The commit history shows each one with its
-author.
+## Recommended settings per game
 
-| From | What it brings |
+Each tip below names **where it comes from and on which PC it was measured.** These are the
+measurements published by the fork authors, not tests of Bouquet itself: your results will
+differ with your hardware and driver. Settings live in **Emulation → Configure**.
+
+### General (every game)
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| Graphics → API | Vulkan | The only backend the Switch 2 path is built for |
+| Graphics → Advanced → Enable asynchronous shader compilation | On | Fewer pauses while shaders build |
+| CPU → Accuracy | Auto (or Unsafe for more speed) | Selevet's tuned build uses Unsafe |
+
+### Mario Kart World
+
+| Setting | Value |
 | --- | --- |
-| [Lichii](https://github.com/zortos293/Lichii) (zortos293 and contributors) | The base: Ocarina of Time boot and rendering, built-in Max Resolution and Dynamic FPS patches, the AMD black-scene fix, Frizti's performance work, the 17 "perf9" GPU-thread optimizations, MWAITX waits on Ryzen, FSR3 fixes |
-| [Eglantine](https://github.com/Djihads80/Eglantine) (Djihads80 and contributors) | Upstream fixes: H0_NH1 half-precision source, NVDEC end of stream, pipeline cache recovery, Turing MME register reads, small-BAR staging buffer, x64 call reach, Switch 2 channel state, atomic exit flags, GPU device fallback, memory manager reference counts |
-| [Selevet](https://github.com/sylvieistaken/selevet-eglantine) (Sylvie) | Semaphore acquires that skip the GPU-thread drain (already met, or met by a queued release), SEM_EXECUTE without a drain, GPU wait polling, high process priority, VRR reported to the game |
-| [SmileyTatsu](https://github.com/SmileyTatsu/Eglantine) | Cheaper ASTC texture scan and decode (less stutter when textures stream in), guest RAM released when a game stops |
-| [Eglantine-DKB](https://github.com/monteger8/Eglantine-DKB) (monteger8, adamd) and [Orchid](https://github.com/MythosOfs/Orchid) | Buffer-cache shortcuts (unchanged vertex buffers, repeated written ranges), empty draws skipped, Donkey Kong Bananza macro DMA reads without a full drain |
-| ZendNevs (via Eglantine-DKB) | Donkey Kong Bananza dynamic FPS, frame generation toggle in game (Ctrl+G) |
+| Graphics → Advanced → **Mario Kart World: dynamic FPS (experimental)** | On (restart the game after changing it) |
+| Resolution | 1x (0.5x on weaker GPUs) |
 
-## Turning an optimization off
+- Bouquet holds a new swap interval back for 120 presents in Mario Kart World
+  (`EDEN_NX2_SWAP_STABLE`): without it the game flips between 60 and 30 fps pacing and fell from
+  about 40 to 20-30 fps.
+- **Measured by Selevet** on a Ryzen 5 5500, RTX 3050 8 GB, 16 GB RAM: **55.5 fps median** at
+  1x, lowest 600-frame average 25.9 fps (Selevet's own tuned build). Heavy tracks still drop while
+  textures load: this is not a locked 60.
+- The dynamic FPS fix (the setting did nothing before) and the cheaper ASTC texture decode come
+  from **SmileyTatsu**.
 
-If something looks wrong after an update, the cause is often one optimization. Each one has a
-switch. Copy `nx2_switches.txt` (next to `bouquet.exe`) to your data folder
-(`%APPDATA%\bouquet\nx2_switches.txt` on Windows), remove the `#` in front of the line you want,
-and restart Bouquet. The "Bouquet" section at the end of that file lists every optimization
-Bouquet adds, with where it comes from.
+### The Legend of Zelda: Ocarina of Time
+
+| Setting | Value |
+| --- | --- |
+| Add-Ons → **Max Resolution (built-in)** | On (default) |
+| Add-Ons → **Dynamic FPS (built-in)** | On (default): the game keeps its normal speed below 60 fps |
+| `nx2_switches.txt` → `EDEN_NX2_OOT_VISUAL_WORKAROUND` | On in Bouquet's file (less fog haze and glare) |
+
+- **Measured by zortos293 (Lichii)** in Kokiri Forest on an i7-12700K + **RX 7800 XT (AMD)**:
+  25.97 → **30.75 fps** average with the GPU-thread optimizations Bouquet includes.
+- **Measured by Selevet** on a Ryzen 5 5500 + RTX 3050: about 26-28 fps in Kokiri Forest. The
+  emulator's GPU threads are the limit, not the graphics card.
+- If the game crashes on an AMD card, try `EDEN_NX2_GPU_TIME_DIV=4` (zortos293's "K4" test) in
+  your `nx2_switches.txt`, or skip the compute shader named in the log (`EDEN_NX2_SKIP_COMPUTE`).
+
+### Donkey Kong Bananza
+
+| Setting | Value |
+| --- | --- |
+| Graphics → Advanced → **Donkey Kong Bananza: dynamic FPS (experimental)** | On (default) |
+| Frame generation | Optional, toggle in game with **Ctrl+G** |
+
+- Dynamic FPS (from **ZendNevs**, via Eglantine-DKB): the game follows real time instead of
+  slowing down when the frame rate drops.
+- **Measured by MythosOfs (Orchid 0.6.1)** on AMD with RADV (Linux): the first area went from
+  about 22 to 59 fps. Later areas are still slow.
+
+### Pokémon Pokopia
+
+- Works out of the box. Bouquet doesn't pace storage reads for Switch 2 games (from
+  **notsapinho**), which made Pokopia boot about **13 s faster** in his tests.
+- notsapinho measured world frames at 8.4-8.6 ms on his own build (120 Hz mod).
+
+### Splatoon Raiders
+
+- Works out of the box. No fork has published measurements yet.
+
+## What's inside, fork by fork
+
+The full list with authors is in the commit history. Here is what each source brings.
+
+### Base: [Lichii](https://github.com/zortos293/Lichii) `nx2` (zortos293 and contributors)
+
+Everything Lichii had on 6 November 2026, including:
+
+- Ocarina of Time: boot, rendering, the built-in **Max Resolution** and **Dynamic FPS** patches,
+  door fix, upscaler gathers, white flashes fix, the last compute shader forms.
+- The **AMD black-scene fix** (#127), **MWAITX/UMWAIT** wait fixes for Ryzen and Intel.
+- **"perf9"**: 17 GPU-thread optimizations promoted by default (cheaper method dispatch,
+  batched constant-buffer writes, page-run cache, SPIR-V emission on pipeline workers, smarter
+  waits before MME DMA reads, read-back batching: Ocarina's Finishes went from 1184 to 70 a
+  second).
+- **Frizti's performance work** (#194): event waits instead of spinning, Ocarina one frame
+  ahead, 4096-draw submissions, deferred fragment barriers, cheaper CPU timer reads, uniform bank
+  uploads without page protection churn, FSR3 fixes.
+
+### Added on top
+
+| From | Change | Switch |
+| --- | --- | --- |
+| [Eglantine](https://github.com/Djihads80/Eglantine) (Jonas, Erick, Christian, failaip12, MythosOfs…) | H0_NH1 mixed-sign half source; NVDEC end of stream; pipeline cache recovery; Turing MME register reads; stream buffer on small BAR heaps; x64 call reach; Switch 2 channel state; atomic exit flags; GPU device fallback; memory manager reference counts | — |
+| [Selevet](https://github.com/sylvieistaken/selevet-eglantine) | Semaphore acquires already met in memory, or met by a queued release, skip the GPU-thread drain; SEM_EXECUTE without a drain; GPU wait polling; high process priority; VRR reported to the game | `ACQUIRE_PEEK`, `ACQUIRE_QUEUED`, `SEMEXEC_DRAIN`, `GPU_WAIT_SPIN_US`, `HIGH_PRIORITY`, `REPORT_VRR` |
+| Selevet | **Timer thread sleeps through long waits** (it kept 91% of a core busy in Mario Kart World, a core the game can use on a 6-core CPU) and is only woken for a new earliest event | `EDEN_TIMING_COARSE`, `EDEN_TIMING_WAKE_ALL` |
+| Selevet | CPU float accuracy overrides | `EDEN_CPU_ACCURATE_FLOAT`, `EDEN_CPU_FUSED_FMA`, `EDEN_CPU_GLOBAL_MONITOR` |
+| Selevet | First dispatch of each compute shader logged; skip list for GPU hangs | `SKIP_COMPUTE` |
+| Selevet | Tunable Ocarina of Time fog/exposure/bloom (on zortos293's workaround) | `OOT_VISUAL_WORKAROUND`, `OOT_FOG_SCALE`, `OOT_EXPOSURE_SCALE`, `OOT_BLOOM_EXP_SCALE` |
+| Selevet | Uncompressed ASTC for Mario Kart World (BC3 darkened the ground), used by the optimized settings | — |
+| [Orchid](https://github.com/MythosOfs/Orchid) | **Switch 2 graphics services on their own host thread**: vi2's present no longer blocks emulated core 3 for most of every frame | `GSV_HOST_THREAD` |
+| Orchid, after Selevet | Mario Kart World swap interval held back for 120 presents (40 → 20 fps drop) | `SWAP_STABLE` |
+| [SmileyTatsu](https://github.com/SmileyTatsu/Eglantine) | Mario Kart World dynamic FPS applies (it never did); ASTC data scanned in place and decoded per block (less stutter); guest RAM released when a game stops; Switch 2 pipelines all built at boot and never evicted; no task/mesh pipelines without `VK_EXT_mesh_shader`; crash fix when stopping emulation | — |
+| [notsapinho](https://github.com/notsapinho/Eglantine) | Storage reads of Switch 2 games not paced (Pokopia boots ~13 s faster) | — |
+| [Eglantine-DKB](https://github.com/monteger8/Eglantine-DKB) (monteger8, adamd), Orchid | Unchanged vertex buffers and repeated written ranges skipped; empty draws skipped; DK Bananza macro DMA reads of untouched pages skip the full drain | `DRAW_TUNING`, `DRAW_EMPTY`, `DMA_DRAIN` |
+| ZendNevs (via Eglantine-DKB) | Donkey Kong Bananza dynamic FPS; frame generation toggle in game (Ctrl+G) | `PACE_ONE` |
+| Lichii experiments (zortos293) | "K4" GPU time divisor; parallel render pass recording prototype; Ocarina visual workaround | `GPU_TIME_DIV`, `PARALLEL_RECORD`, `OOT_VISUAL_WORKAROUND` |
+| Bouquet | Optimized settings per game with GPU vendor detection; MKW/DK title checks through the present's process; DMA drain skip limited to DK Bananza (Ocarina's fog reads query results this way); conflicts resolved against Lichii's newer code | — |
+
+## Every switch Bouquet adds
+
+Switches are read from `nx2_switches.txt` next to `bouquet.exe`, and from your own copy in the data
+folder (`%APPDATA%\bouquet\nx2_switches.txt` on Windows), which wins. One `NAME=VALUE` per line;
+restart Bouquet after editing. The file shipped with Bouquet lists them all in its "Bouquet"
+section. If something looks wrong after an update, turn the switches off one at a time.
+
+| Switch | Default | Turn it… |
+| --- | --- | --- |
+| `EDEN_NX2_ACQUIRE_PEEK` | on (off in DK Bananza) | `=0` off |
+| `EDEN_NX2_ACQUIRE_QUEUED` | on | `=0` off |
+| `EDEN_NX2_SEMEXEC_DRAIN` | off (no drain) | `=1` to drain again |
+| `EDEN_NX2_GPU_WAIT_SPIN_US` | 300 | `=0` no polling |
+| `EDEN_NX2_HIGH_PRIORITY` | on | `=0` normal priority |
+| `EDEN_NX2_REPORT_VRR` | on | `=0` off |
+| `EDEN_TIMING_COARSE` | on | `=0` precise waits |
+| `EDEN_TIMING_WAKE_ALL` | off | `=1` wake for every event |
+| `EDEN_NX2_GSV_HOST_THREAD` | on | `=0` back on emulated core 3 |
+| `EDEN_NX2_SWAP_STABLE` | 120 for MKW, 0 otherwise | `=<presents>` for every game |
+| `EDEN_NX2_DRAW_TUNING` | on | `=0` off |
+| `EDEN_NX2_DRAW_EMPTY` | off (empty draws skipped) | `=1` to draw them |
+| `EDEN_NX2_DMA_DRAIN` | off (DK skip on) | `=1` always drain |
+| `EDEN_NX2_PACE_ONE` | on (DK) | `=0` keep DK's interval |
+| `EDEN_NX2_ASYNC_SKIP` | off | `=1` skip small draws while their pipeline builds |
+| `EDEN_NX2_OOT_VISUAL_WORKAROUND` | on in Bouquet's file (Ocarina only) | delete the line |
+| `EDEN_NX2_OOT_FOG_SCALE` / `_EXPOSURE_SCALE` / `_BLOOM_EXP_SCALE` | 0.35 / 0.75 / 1.2 | lower = less haze/glare |
+| `EDEN_CPU_ACCURATE_FLOAT`, `EDEN_CPU_FUSED_FMA`, `EDEN_CPU_GLOBAL_MONITOR` | off | `=1` on |
+| `EDEN_NX2_SKIP_COMPUTE` | empty | `=hash,hash` |
+| `EDEN_NX2_GPU_TIME_DIV` | 1 | `=4` (K4 test) |
+| `EDEN_NX2_PARALLEL_RECORD` | off | `=1` prototype |
+
+## What was left out, and why
+
+Being honest about the gaps helps when you compare Bouquet with another build.
+
+- **Lichii's "fast draw" branch** (`FAST_DRAW`, `BUFFER_SKIP`, `INLINE_INVALIDATE`,
+  `DYNAMIC_SKIP`, `DMA_RANGES`, `LIST_TRUST`), which Selevet's Ocarina builds turn on: it is 181
+  commits behind Lichii and conflicts with the perf9 code that replaced much of it. zortos293
+  keeps it experimental.
+- **Orchid's shader reuse and asynchronous translation** (from zortos293's build 31): Lichii now
+  emits SPIR-V on pipeline workers itself (perf9), which covers the same stalls.
+- **Jonas's Ocarina optimizations** (idle spin, overlapping-write waits, MaxContinuousRange
+  cache): already in Lichii.
+- **Orchid's command-list drain skip** (Mario Tennis Fever only) and **SmileyTatsu's single-submit
+  ASTC transcode**: they rewrite code Lichii changed since; left for a later version.
+- **Selevet's thread pinning** (opt-in only) and **inline CNTPCT** (needs a modified dynarmic).
+- **Pokopia FPS-mod settings (120-360 Hz)** from notsapinho: a larger settings change, planned.
 
 ## Reporting a problem
 
@@ -100,29 +265,36 @@ Open an [issue](https://github.com/justr4mzi/bouquet/issues) and attach:
 
 - the log file `eden_log.txt` (the **Log Folder** entry in the menu bar opens its folder);
 - the game and its version, your CPU, your graphics card and its driver version;
+- which build you used (the zip name), whether optimized settings are on, and what you changed
+  in `nx2_switches.txt`;
 - what you did and what went wrong (a screenshot helps a lot).
 
 ## Known issues
 
-- **Ocarina of Time** runs at about 30 fps on most PCs: the emulator's GPU threads are the limit,
-  not your graphics card. It plays at normal speed thanks to the Dynamic FPS patch.
-- **AMD graphics cards**: most testing in the scene is done on NVIDIA. Bugs specific to AMD are
-  possible; logs from AMD users are very welcome.
+- **Ocarina of Time** runs at about 30 fps on most PCs: the emulator's GPU threads are the limit.
+  It plays at normal speed thanks to the Dynamic FPS patch.
+- **AMD graphics cards**: most testing in the scene is done on NVIDIA. Logs from AMD users are
+  very welcome.
 - **Donkey Kong Bananza**: later areas are still slow.
+- The first launch of a game builds its shaders: expect stutter for a few minutes.
 
 ## Building from source
 
 Bouquet builds like Eglantine and Lichii: see the [build guide](docs/Build.md). The release
-binaries come from [.github/workflows/release-binaries.yml](.github/workflows/release-binaries.yml).
+binaries come from [.github/workflows/release-binaries.yml](.github/workflows/release-binaries.yml)
+(Windows MSVC, Windows MinGW clang PGO and PGO AVX2, Linux x86_64/aarch64 standard and PGO,
+macOS arm64).
 
 ## Credits
 
 Bouquet only gathers other people's work. All credit goes to the developers of
-[Lichii](https://github.com/zortos293/Lichii), [Eglantine](https://github.com/Djihads80/Eglantine),
+[Lichii](https://github.com/zortos293/Lichii) (zortos293, Frizti, Kajcsi, Inc0rporate, Shrxmy and
+others), [Eglantine](https://github.com/Djihads80/Eglantine) (Djihads80, Jonas and others),
 [Selevet](https://github.com/sylvieistaken/selevet-eglantine),
 [SmileyTatsu's fork](https://github.com/SmileyTatsu/Eglantine),
-[Orchid](https://github.com/MythosOfs/Orchid),
-[Eglantine-DKB](https://github.com/monteger8/Eglantine-DKB),
+[Orchid](https://github.com/MythosOfs/Orchid) (MythosOfs),
+[notsapinho's fork](https://github.com/notsapinho/Eglantine),
+[Eglantine-DKB](https://github.com/monteger8/Eglantine-DKB) (monteger8, adamd), ZendNevs,
 [Eden](https://git.eden-emu.dev/eden-emu/eden) and yuzu. Please don't report Bouquet bugs to them.
 
 Bouquet is put together by [justr4mzi](https://github.com/justr4mzi).
