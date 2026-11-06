@@ -223,7 +223,7 @@ jobs:
           install: >-
             git make autoconf libtool automake-wrapper patch jq pactoys ninja
           pacboy: >-
-            toolchain:p clang:p lld:p compiler-rt:p cmake:p python-pip:p
+            toolchain:p clang:p lld:p compiler-rt:p llvm:p cmake:p python-pip:p
             qt6-base:p qt6-charts:p qt6-tools:p qt6-translations:p qt6-svg:p
             openssl:p boost:p fmt:p lz4:p nlohmann-json:p zlib:p zstd:p libiconv:p
             vulkan-memory-allocator:p vulkan-devel:p glslang:p enet:p opus:p
@@ -364,9 +364,8 @@ jobs:
           lto_tools=""
           if [ '${{ matrix.lto }}' = 'true' ]; then
             lto="-flto=thin"
-            if command -v llvm-ar >/dev/null; then
-              lto_tools="-DCMAKE_AR=$(command -v llvm-ar) -DCMAKE_RANLIB=$(command -v llvm-ranlib)"
-            fi
+            lto_tools="-DCMAKE_AR=$(cygpath -m /ucrt64/bin/llvm-ar.exe) -DCMAKE_RANLIB=$(cygpath -m /ucrt64/bin/llvm-ranlib.exe)"
+            test -x /ucrt64/bin/llvm-ar.exe
           fi
           cmake -S . -B build/release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
@@ -533,7 +532,7 @@ jobs:
           done
           if [ '${{ matrix.train }}' = 'true' ]; then
             # The merge tool from the same LLVM that will read the profile.
-            cp "$(command -v llvm-profdata)" .
+            cp /ucrt64/bin/llvm-profdata.exe .
             deps llvm-profdata.exe
             cp "$GITHUB_WORKSPACE/tools/pgo/merge-profile.bat" "$GITHUB_WORKSPACE/tools/pgo/README-PGO.txt" .
           fi
