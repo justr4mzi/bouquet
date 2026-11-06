@@ -55,6 +55,15 @@ enum EmuPath {
     SuyuConfigDir,
     SuyuCacheDir,
 
+    // Bouquet: the Switch 2 forks it is built from
+    LichiiDir,
+    LichiiConfigDir,
+    LichiiCacheDir,
+
+    EdenLegacyDir,
+    EdenLegacyConfigDir,
+    EdenLegacyCacheDir,
+
     // used exclusively for save data linking
     RyujinxDir,
 };

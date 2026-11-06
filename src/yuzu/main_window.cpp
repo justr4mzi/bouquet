@@ -574,6 +574,10 @@ MainWindow::MainWindow(bool has_broken_vulkan)
     }
     // Bouquet: offer the optimized settings once, at the first start.
     if (!Settings::values.bouquet_smart_presets_asked.GetValue()) {
+        // A configuration imported from Lichii or Eden brings its theme along: the first start
+        // switches to Bouquet's own (Configure > General > UI can change it back).
+        UISettings::values.theme = "bouquet";
+        UpdateUITheme();
         QTimer::singleShot(0, this, [this] {
             Settings::values.bouquet_smart_presets_asked = true;
             Settings::values.bouquet_smart_presets =
