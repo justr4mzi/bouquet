@@ -75,7 +75,14 @@
 #include <QActionGroup>
 #include <QCheckBox>
 #include <QClipboard>
+#include <fstream>
+#include <thread>
+#include <filesystem>
 #include <QDesktopServices>
+#include <QUrl>
+#include <QSysInfo>
+#include <QDateTime>
+#include <QStandardPaths>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -571,6 +578,11 @@ MainWindow::MainWindow(bool has_broken_vulkan)
             config->SaveAllValues();
         });
         bouquet_smart_presets_action = smart;
+    }
+    // Bouquet: Help > Create Bug Report gathers what a report needs in one folder.
+    {
+        QAction* const report = ui->menu_Help->addAction(tr("Create Bug Report..."));
+        connect(report, &QAction::triggered, this, &MainWindow::OnCreateBugReport);
     }
     // Bouquet: offer the optimized settings once, at the first start.
     if (!Settings::values.bouquet_smart_presets_asked.GetValue()) {
@@ -4179,6 +4191,60 @@ void MainWindow::OnOpenModFolder() {
 
 void MainWindow::OnOpenLogFolder() {
     QtCommon::Game::OpenLogFolder();
+}
+
+void MainWindow::OnCreateBugReport() {
+    namespace fs = std::filesystem;
+    const QString desktop = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+    const QString folder_name =
+        QStringLiteral("Bouquet-bug-report-%1")
+            .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmm")));
+    const fs::path folder = fs::path{desktop.toStdU16String()} / folder_name.toStdU16String();
+    std::error_code error;
+    fs::create_directories(folder, error);
+    if (error) {
+        QMessageBox::warning(this, tr("Create Bug Report"),
+                             tr("Could not create the folder on the desktop."));
+        return;
+    }
+    const auto copy = [&folder](const fs::path& from, std::string_view name) {
+        std::error_code ignored;
+        if (fs::is_regular_file(from, ignored)) {
+            fs::copy_file(from, folder / name, fs::copy_options::overwrite_existing, ignored);
+        }
+    };
+    const fs::path log_dir = Common::FS::GetEdenPath(Common::FS::EdenPath::LogDir);
+    copy(log_dir / "eden_log.txt", "eden_log.txt");
+    copy(log_dir / "eden_log.txt.old", "eden_log.txt.old");
+    const fs::path config_dir = Common::FS::GetEdenPath(Common::FS::EdenPath::ConfigDir);
+    copy(config_dir / "qt-config.ini", "qt-config.ini");
+    copy(Common::FS::GetEdenPath(Common::FS::EdenPath::EdenDir) / "nx2_switches.txt",
+         "nx2_switches (yours).txt");
+
+    std::string info = fmt::format("Bouquet {} ({})\n", Common::g_build_version,
+                                   Common::g_build_release_platform);
+    info += fmt::format("OS: {}\n", QSysInfo::prettyProductName().toStdString());
+#ifdef ARCHITECTURE_x86_64
+    info += fmt::format("CPU: {}\n", Common::g_cpu_caps.cpu_string);
+#endif
+    info += fmt::format("CPU threads: {}\n", std::thread::hardware_concurrency());
+    const auto selected = static_cast<size_t>(Settings::values.vulkan_device.GetValue());
+    for (size_t i = 0; i < vk_device_records.size(); ++i) {
+        info += fmt::format("GPU {}{}: {}\n", i, i == selected ? " (selected)" : "",
+                            vk_device_records[i].name);
+    }
+    info += fmt::format("Optimized settings per game: {}\n",
+                        Settings::values.bouquet_smart_presets.GetValue() ? "on" : "off");
+    std::ofstream{folder / "system.txt"} << info;
+
+    QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromStdU16String(folder.u16string())));
+    QMessageBox::information(
+        this, tr("Create Bug Report"),
+        tr("The bug report is on your desktop, in the folder %1.\n\nIt holds your log, your "
+           "settings, your nx2_switches.txt and your PC's CPU and graphics card. Zip it and attach "
+           "it to an issue on github.com/justr4mzi/bouquet, with what you did and what went "
+           "wrong. Close Bouquet first if a game was running, so the log is complete.")
+            .arg(folder_name));
 }
 
 void MainWindow::OnVerifyInstalledContents() {
