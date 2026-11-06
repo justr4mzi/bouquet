@@ -1,0 +1,46 @@
+# Switch NX2 - Turbo Configuration for Hortensia
+# Copy this file as nx2_switches.txt next to hortensia.exe or in %APPDATA%\hortensia\nx2_switches.txt
+# to activate all optimizations for Mario Kart World and Switch 2 games.
+
+# Enable GPU split thread (offloads method/macro execution to back thread)
+EDEN_NX2_SPLIT=2
+
+# Flush draw call budget (128 draws per batch to balance CPU/GPU load)
+EDEN_NX2_FLUSH_DRAWS=128
+
+# Spin budgets for thread synchronization
+EDEN_NX2_WAIT_SPINS=256
+EDEN_NX2_BACK_SPIN=512
+
+# Per-slot semaphore waiting (avoids unnecessary global waits)
+EDEN_NX2_SEM_SLOT_WAIT=1
+
+# Memory peek and queued release optimizations
+EDEN_NX2_ACQUIRE_PEEK=1
+EDEN_NX2_ACQUIRE_QUEUED=1
+
+# Memory ranges and trusted list fetching (avoids redundant writer drains in MKW)
+EDEN_NX2_DMA_RANGES=1
+EDEN_NX2_LIST_TRUST=1
+EDEN_NX2_CB_COALESCE=1
+
+# Native SSBO sizing: 0 sizes SSBOs by descriptor, eliminating the 7.6 GiB/s GPU readback bug in MKW
+EDEN_NX2_NATIVE_SSBO_SIZE=0
+
+# Event-based pending semaphore wake (eliminates 3ms sleep in vi2::Present)
+EDEN_NX2_PENDING_WAKE=1
+
+# ASTC texture decoding and transcoding optimizations (SmileyTatsu)
+EDEN_NX2_ASTC_ONE_SUBMIT=1
+EDEN_NX2_ASTC_SCRATCH_BUCKET=1
+EDEN_NX2_ASTC_POOL_V2=1
+EDEN_NX2_ASTC_POOL_FIT=1
+
+# Buffer cache usage tracker reset skip for idle buffers
+EDEN_NX2_USAGE_RESET_SKIP=1
+
+# AMD GPU parallel pipeline compilation on Windows
+EDEN_NX2_AMD_PARALLEL_PIPELINES=1
+
+# Accurate FPS logging every 5s and session summary at shutdown
+EDEN_FPS_LOG=1
