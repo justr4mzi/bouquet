@@ -198,3 +198,18 @@ génère un texte automatique, complète-le au lieu de le laisser vide.
   teste `EDEN_NX2_SWAP_INTERVAL=1` (dans `%APPDATA%\hortensia\nx2_switches.txt`) : si ça
   débloque sans que le jeu tourne trop vite, mets intervalle 1 par défaut pour MKW quand le
   patch dynamic FPS est off, derrière un switch.
+
+## 13. Résultat final Hortensia (6 nov 23:38) et décision
+
+Hortensia release (main 3edd84fd), mêmes réglages verrouillés que SmileyTatsu et Selevet,
+preset auto off, dynamic FPS off, `EDEN_NX2_SWAP_INTERVAL=1` : **~25 fps de moyenne en course
+(22-30)**, 60 dans les menus. Ce n'est donc pas un bridage : Hortensia est **plus lent**.
+Classement MKW sur le PC de Ramzi (à l'œil) : **SmileyTatsu build-18 ~40 > Selevet build 10 ~33
+> Hortensia ~25**.
+Décision : la **tâche n°1 devient la reconstruction sur SmileyTatsu** (branche
+`rebase/smileytatsu`, section 3 point 3). Repars de SmileyTatsu `dev-rebased` (build-18), ajoute
+par-dessus les ajouts d'Hortensia un par un (nom, thème, imports, presets, updater, PGO MKW, OOT
+de Lichii), puis **fais remesurer MKW à Ramzi après chaque gros ajout**, pour trouver lequel coûte
+des fps. Suspects côté Hortensia : le pacing GSV d'Orchid (`nx2_gsv.h`), les commits AMD de
+chuppatricky/sharkiix, la base Lichii et ses ports Selevet, le profil PGO. Ne republie sur `main`
+que quand c'est au moins aussi rapide que SmileyTatsu.

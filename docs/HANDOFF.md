@@ -174,3 +174,4 @@ x2_gpu_mapping_table.h /
 vhost_as_gpu.cpp)* et EDEN_NX2_SPARSE_REMAP (
 x2:gpu 216 désactivé par défaut chez Selevet car 15–20 % plus lent sur RTX 3050).
 - **2026-11-06 23:30 (Claude):** MKW comparison on Ramzi's PC (handheld, same race, FG off, same locked settings, fps by eye): SmileyTatsu build-18 PGO ~40 avg / 47 max / 26-27 min; Selevet build 10 ~33 avg. Hortensia release to be measured. Shared `%APPDATA%\eden` config gets reset by emulators on close: lock settings with `\default=false` and check `LogSettings`. Selevet serializes AMD pipeline builds (`EDEN_NX2_AMD_PARALLEL_PIPELINES=1` restores parallel). Claude is out of quota for the week: Antigravity leads, see `docs/ANTIGRAVITY_DAILY.md`.
+- **2026-11-06 23:40 (Claude):** Hortensia release measured ~25 fps in race (22-30) with the same locked settings: slower than SmileyTatsu (~40) and Selevet (~33). Decision: rebuild on SmileyTatsu `dev-rebased` (see `docs/ANTIGRAVITY_DAILY.md` section 13).
