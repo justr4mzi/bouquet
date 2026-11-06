@@ -578,6 +578,38 @@ MainWindow::MainWindow(bool has_broken_vulkan)
         // switches to Bouquet's own (Configure > General > UI can change it back).
         UISettings::values.theme = "bouquet";
         UpdateUITheme();
+        // Pick the strongest GPU once: a dedicated card over the processor's integrated graphics
+        // (a Ryzen with a Radeon RX card lists both, the integrated one sometimes first).
+        if (vk_device_records.size() > 1) {
+            const auto score = [](const std::string& name) {
+                const auto has = [&name](const char* word) {
+                    return name.find(word) != std::string::npos;
+                };
+                if (has("NVIDIA") || has("GeForce") || has("RTX") || has("GTX")) {
+                    return 3;
+                }
+                if ((has("AMD") || has("Radeon")) && (has(" RX ") || has("RX ") || has("PRO W"))) {
+                    return 3;
+                }
+                if (has("Arc")) {
+                    return 2;
+                }
+                if (has("llvmpipe") || has("SwiftShader") || has("Microsoft Basic")) {
+                    return -1;
+                }
+                return 0;
+            };
+            size_t best = 0;
+            for (size_t i = 1; i < vk_device_records.size(); ++i) {
+                if (score(vk_device_records[i].name) > score(vk_device_records[best].name)) {
+                    best = i;
+                }
+            }
+            if (best != static_cast<size_t>(Settings::values.vulkan_device.GetValue())) {
+                Settings::values.vulkan_device.SetValue(static_cast<u32>(best));
+                LOG_INFO(Frontend, "Bouquet: using GPU {} ({})", best, vk_device_records[best].name);
+            }
+        }
         QTimer::singleShot(0, this, [this] {
             Settings::values.bouquet_smart_presets_asked = true;
             Settings::values.bouquet_smart_presets =
