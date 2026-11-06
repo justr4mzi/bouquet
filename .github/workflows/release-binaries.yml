@@ -9,7 +9,7 @@ on:
         default: true
   push:
     branches:
-      - nx2-experimental
+      - main
     # A binary only changes when build inputs change; docs-only pushes skip the build.
     paths:
       - "src/**"
@@ -95,6 +95,13 @@ jobs:
             runner: windows-2022
             pgo: true
             mingw: true
+          # Same PGO build for CPUs with AVX2 (x86-64-v3: Ryzen, Intel 4th gen and newer), like
+          # Selevet's tuned build.
+          - platform: windows-x86_64-pgo-avx2
+            runner: windows-2022
+            pgo: true
+            mingw: true
+            march: x86-64-v3
           - platform: linux-aarch64
             runner: ubuntu-24.04-arm
           - platform: linux-aarch64-pgo
@@ -351,6 +358,7 @@ jobs:
           set -euo pipefail
           profile="-fprofile-use=$(cygpath -m "$PWD/eglantine.profdata") -Wno-backend-plugin \
             -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date"
+          if [ -n "${{ matrix.march }}" ]; then profile="$profile -march=${{ matrix.march }}"; fi
           cmake -S . -B build/release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
@@ -419,12 +427,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -x build/release/bin/lichii
-          test -x build/release/bin/eden-cli
-          strip build/release/bin/lichii build/release/bin/eden-cli
-          tar -czf "lichii-${GITHUB_SHA}-${{ matrix.platform }}.tar.gz" \
-            -C build/release/bin lichii eden-cli
-          ls -la "lichii-${GITHUB_SHA}-${{ matrix.platform }}.tar.gz"
+          test -x build/release/bin/bouquet
+          test -x build/release/bin/bouquet-cli
+          strip build/release/bin/bouquet build/release/bin/bouquet-cli
+          tar -czf "bouquet-${GITHUB_SHA}-${{ matrix.platform }}.tar.gz" \
+            -C build/release/bin bouquet bouquet-cli
+          ls -la "bouquet-${GITHUB_SHA}-${{ matrix.platform }}.tar.gz"
 
       # A self-contained AppImage: linuxdeploy bundles every library the two programs need except
       # the base system ones (glibc, X11/Wayland client libraries, the GPU driver and Vulkan loader),
@@ -434,8 +442,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -x build/release/bin/lichii
-          test -x build/release/bin/eden-cli
+          test -x build/release/bin/bouquet
+          test -x build/release/bin/bouquet-cli
           tools="$RUNNER_TEMP/linuxdeploy"
           mkdir -p "$tools"
           arch=$(uname -m)   # aarch64 or x86_64
@@ -444,9 +452,9 @@ jobs:
           curl -fsSL -o "$tools/linuxdeploy-plugin-qt-$arch.AppImage" \
           https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-$arch.AppImage
           chmod +x "$tools"/*.AppImage
-          # The desktop file names its icon io.github.zortos293.lichii.
-          icon="$RUNNER_TEMP/io.github.zortos293.lichii.png"
-          cp dist/lichii.png "$icon"
+          # The desktop file names its icon io.github.justr4mzi.bouquet.
+          icon="$RUNNER_TEMP/io.github.justr4mzi.bouquet.png"
+          cp dist/bouquet.png "$icon"
           export APPIMAGE_EXTRACT_AND_RUN=1
           export QMAKE="$QT_ROOT_DIR/bin/qmake"
           # Include Wayland platform plugins and their graphics/shell integrations.
@@ -454,13 +462,13 @@ jobs:
           export EXTRA_PLATFORM_PLUGINS='libqwayland-egl.so;libqwayland-generic.so'
           # Embedded in the AppImage metadata; matches the release tag (build-N) plus the commit.
           export LDAI_VERSION="build-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
-          export LDAI_OUTPUT="lichii-${GITHUB_SHA}-${{ matrix.platform }}.AppImage"
+          export LDAI_OUTPUT="bouquet-${GITHUB_SHA}-${{ matrix.platform }}.AppImage"
           export OUTPUT="$LDAI_OUTPUT"
           export ARCH="$arch"
           "$tools/linuxdeploy-$arch.AppImage" --appdir AppDir \
-            --executable build/release/bin/lichii \
-            --executable build/release/bin/eden-cli \
-            --desktop-file dist/io.github.zortos293.lichii.desktop \
+            --executable build/release/bin/bouquet \
+            --executable build/release/bin/bouquet-cli \
+            --desktop-file dist/io.github.justr4mzi.bouquet.desktop \
             --icon-file "$icon" \
             --plugin qt \
             --output appimage
@@ -471,12 +479,12 @@ jobs:
         if: matrix.platform == 'windows-x86_64'
         shell: pwsh
         run: |
-          foreach ($exe in 'lichii.exe', 'eden-cli.exe') {
+          foreach ($exe in 'bouquet.exe', 'bouquet-cli.exe') {
             if (-not (Test-Path "build/release/bin/$exe")) {
               throw "build/release/bin/$exe was not produced"
             }
           }
-          windeployqt --release --no-translations build/release/bin/lichii.exe
+          windeployqt --release --no-translations build/release/bin/bouquet.exe
 
       # A dynamic MinGW build is not portable on its own: windeployqt6 brings the Qt libraries and
       # plugins, then every non-system DLL the binaries and those plugins pull in gets copied next to
@@ -488,10 +496,10 @@ jobs:
           set -euo pipefail
           export PATH="/ucrt64/bin:$PATH"
           cd build/release/bin
-          test -f lichii.exe
-          test -f eden-cli.exe
+          test -f bouquet.exe
+          test -f bouquet-cli.exe
           windeployqt6 --no-translations --no-compiler-runtime --no-opengl-sw \
-            --no-system-dxc-compiler --no-system-d3d-compiler lichii.exe
+            --no-system-dxc-compiler --no-system-d3d-compiler bouquet.exe
           deps() {
             objdump -p "$1" | awk '/DLL Name:/ {print $3}' | while read -r dll; do
               [ -z "$dll" ] && continue
@@ -507,7 +515,7 @@ jobs:
               fi
             done
           }
-          for exe in lichii.exe eden-cli.exe; do
+          for exe in bouquet.exe bouquet-cli.exe; do
             deps "$exe"
           done
           find . -name '*.dll' | while read -r dll; do
@@ -522,12 +530,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          app=build/release/bin/lichii.app
-          test -x "$app/Contents/MacOS/lichii"
-          test -x build/release/bin/eden-cli
-          cp build/release/bin/eden-cli "$app/Contents/MacOS/eden-cli"
+          app=build/release/bin/bouquet.app
+          test -x "$app/Contents/MacOS/bouquet"
+          test -x build/release/bin/bouquet-cli
+          cp build/release/bin/bouquet-cli "$app/Contents/MacOS/bouquet-cli"
           "$(brew --prefix qt@6)/bin/macdeployqt" "$app" \
-            -executable="$app/Contents/MacOS/eden-cli" -libpath="$(brew --prefix)/lib" \
+            -executable="$app/Contents/MacOS/bouquet-cli" -libpath="$(brew --prefix)/lib" \
             -always-overwrite -verbose=1
           # Qt's virtual keyboard input plugin pulls in the QML stack, which the emulator doesn't use.
           rm -f "$app/Contents/PlugIns/platforminputcontexts/libqtvirtualkeyboardplugin.dylib"
@@ -540,7 +548,7 @@ jobs:
               done
           done
           # Libraries that load their dependencies through @rpath find them in the bundle.
-          for program in lichii eden-cli; do
+          for program in bouquet bouquet-cli; do
             install_name_tool -add_rpath @executable_path/../Frameworks \
               "$app/Contents/MacOS/$program" 2> /dev/null
           done
@@ -559,19 +567,19 @@ jobs:
           codesign --force --deep --sign - "$app"
           if [ -f dist/eglantine.entitlements ]; then
             codesign --force --sign - --entitlements dist/eglantine.entitlements \
-              "$app/Contents/MacOS/eden-cli"
+              "$app/Contents/MacOS/bouquet-cli"
             codesign --force --sign - --entitlements dist/eglantine.entitlements "$app"
           fi
           codesign --verify --deep --strict "$app"
-          ditto -c -k --keepParent "$app" "lichii-${GITHUB_SHA}-${{ matrix.platform }}.zip"
-          ls -la "lichii-${GITHUB_SHA}-${{ matrix.platform }}.zip"
-          # Also ship a .dmg (drag lichii.app onto Applications).
+          ditto -c -k --keepParent "$app" "bouquet-${GITHUB_SHA}-${{ matrix.platform }}.zip"
+          ls -la "bouquet-${GITHUB_SHA}-${{ matrix.platform }}.zip"
+          # Also ship a .dmg (drag bouquet.app onto Applications).
           dmgdir=$(mktemp -d)
-          ditto "$app" "$dmgdir/lichii.app"
+          ditto "$app" "$dmgdir/bouquet.app"
           ln -s /Applications "$dmgdir/Applications"
-          hdiutil create -volname "Lichii" -srcfolder "$dmgdir" -ov -format UDZO \
-            "lichii-${GITHUB_SHA}-${{ matrix.platform }}.dmg"
-          ls -la "lichii-${GITHUB_SHA}-${{ matrix.platform }}.dmg"
+          hdiutil create -volname "Bouquet" -srcfolder "$dmgdir" -ov -format UDZO \
+            "bouquet-${GITHUB_SHA}-${{ matrix.platform }}.dmg"
+          ls -la "bouquet-${GITHUB_SHA}-${{ matrix.platform }}.dmg"
 
       # The artifact is the bin folder itself: GitHub zips artifacts on download, and uploading a
       # zip gave a zip inside a zip. The release job zips it once for the release.
@@ -579,7 +587,7 @@ jobs:
         if: matrix.platform == 'windows-x86_64'
         uses: actions/upload-artifact@v7
         with:
-          name: lichii-${{ matrix.platform }}-${{ github.sha }}
+          name: bouquet-${{ matrix.platform }}-${{ github.sha }}
           path: build/release/bin/
           if-no-files-found: error
           retention-days: 7
@@ -588,7 +596,7 @@ jobs:
         if: matrix.mingw
         uses: actions/upload-artifact@v7
         with:
-          name: lichii-${{ matrix.platform }}-${{ github.sha }}
+          name: bouquet-${{ matrix.platform }}-${{ github.sha }}
           path: build/release/bin/
           if-no-files-found: error
           retention-days: 7
@@ -598,10 +606,10 @@ jobs:
         if: startsWith(matrix.platform, 'linux')
         uses: actions/upload-artifact@v7
         with:
-          name: lichii-${{ matrix.platform }}-${{ github.sha }}
+          name: bouquet-${{ matrix.platform }}-${{ github.sha }}
           path: |
-            lichii-${{ github.sha }}-${{ matrix.platform }}.tar.gz
-            lichii-${{ github.sha }}-${{ matrix.platform }}.AppImage
+            bouquet-${{ github.sha }}-${{ matrix.platform }}.tar.gz
+            bouquet-${{ github.sha }}-${{ matrix.platform }}.AppImage
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -611,10 +619,10 @@ jobs:
         if: startsWith(matrix.platform, 'macos')
         uses: actions/upload-artifact@v7
         with:
-          name: lichii-${{ matrix.platform }}-${{ github.sha }}
+          name: bouquet-${{ matrix.platform }}-${{ github.sha }}
           path: |
-            lichii-${{ github.sha }}-${{ matrix.platform }}.zip
-            lichii-${{ github.sha }}-${{ matrix.platform }}.dmg
+            bouquet-${{ github.sha }}-${{ matrix.platform }}.zip
+            bouquet-${{ github.sha }}-${{ matrix.platform }}.dmg
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -633,7 +641,7 @@ jobs:
       - name: Download binaries
         uses: actions/download-artifact@v7
         with:
-          pattern: lichii-*-${{ github.sha }}
+          pattern: bouquet-*-${{ github.sha }}
           path: artifacts
 
       - name: Package release files
@@ -676,7 +684,7 @@ jobs:
           base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}"
 
           cat > notes.md <<EOF
-          Automatic build of \`${GITHUB_REF_NAME}\` at ${GITHUB_SHA}.
+          Bouquet build of \`${GITHUB_REF_NAME}\` at ${GITHUB_SHA}. See the README for what is inside and how to set it up.
 
           ## Linux
 
@@ -684,23 +692,24 @@ jobs:
 
           | Build Type | Standard | PGO (Recommended) | Notes |
           | --- | --- | --- | --- |
-          | amd64 | [AppImage](${base}/lichii-linux-x86_64.AppImage) · [tar.gz](${base}/lichii-linux-x86_64.tar.gz) | [AppImage](${base}/lichii-linux-x86_64-pgo.AppImage) · [tar.gz](${base}/lichii-linux-x86_64-pgo.tar.gz) | Make the AppImage executable (\`chmod +x\`) and run it |
-          | ARM (aarch64) | [AppImage](${base}/lichii-linux-aarch64.AppImage) · [tar.gz](${base}/lichii-linux-aarch64.tar.gz) | [AppImage](${base}/lichii-linux-aarch64-pgo.AppImage) · [tar.gz](${base}/lichii-linux-aarch64-pgo.tar.gz) | |
+          | amd64 | [AppImage](${base}/bouquet-linux-x86_64.AppImage) · [tar.gz](${base}/bouquet-linux-x86_64.tar.gz) | [AppImage](${base}/bouquet-linux-x86_64-pgo.AppImage) · [tar.gz](${base}/bouquet-linux-x86_64-pgo.tar.gz) | Make the AppImage executable (\`chmod +x\`) and run it |
+          | ARM (aarch64) | [AppImage](${base}/bouquet-linux-aarch64.AppImage) · [tar.gz](${base}/bouquet-linux-aarch64.tar.gz) | [AppImage](${base}/bouquet-linux-aarch64-pgo.AppImage) · [tar.gz](${base}/bouquet-linux-aarch64-pgo.tar.gz) | |
 
           ## Windows
 
-          Windows packages are in-place zip files: extract and run \`lichii.exe\`, or \`eden-cli.exe\` from a terminal.
+          Windows packages are in-place zip files: extract and run \`bouquet.exe\`, or \`bouquet-cli.exe\` from a terminal.
 
           | Build Type | Standard | PGO (Recommended) | Notes |
           | --- | --- | --- | --- |
-          | amd64 / x86_64 (MSVC) | [MSVC zip](${base}/lichii-windows-x86_64.zip) | | Use if you run into graphical issues on other builds |
-          | amd64 / x86_64 (MinGW) | | [PGO zip](${base}/lichii-windows-x86_64-pgo.zip) | Built with MinGW clang; bundles its own DLLs, no Visual C++ redistributable needed |
+          | amd64 / x86_64 (MSVC) | [MSVC zip](${base}/bouquet-windows-x86_64.zip) | | Use if you run into graphical issues on other builds |
+          | amd64 / x86_64 (MinGW) | | [PGO zip](${base}/bouquet-windows-x86_64-pgo.zip) | Built with MinGW clang; bundles its own DLLs, no Visual C++ redistributable needed |
+          | amd64 / x86_64, AVX2 CPUs (MinGW) | | [PGO AVX2 zip](${base}/bouquet-windows-x86_64-pgo-avx2.zip) | **Fastest on Ryzen and Intel 4th gen or newer** (x86-64-v3). Same as the PGO zip otherwise |
 
           ## macOS
 
           | Build Type | Standard | PGO (Recommended) | Notes |
           | --- | --- | --- | --- |
-          | arm64 (Apple Silicon) | [zip](${base}/lichii-macos-arm64.zip) | | macOS 15 or newer. Not notarized: right-click and choose Open the first time, or run \`xattr -dr com.apple.quarantine lichii.app\`. \`eden-cli\` is inside the app, in \`Contents/MacOS\` |
+          | arm64 (Apple Silicon) | [zip](${base}/bouquet-macos-arm64.zip) | | macOS 15 or newer. Not notarized: right-click and choose Open the first time, or run \`xattr -dr com.apple.quarantine bouquet.app\`. \`bouquet-cli\` is inside the app, in \`Contents/MacOS\` |
 
           The PGO builds are the same programs compiled with profile-guided optimization (clang plus Eglantine's profile); prefer them when your CPU supports it.
           EOF
@@ -709,5 +718,5 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --verify-tag \
             --prerelease \
-            --title "Lichii ${GITHUB_REF_NAME} build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})" \
+            --title "Bouquet ${GITHUB_REF_NAME} build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})" \
             --notes-file notes.md
