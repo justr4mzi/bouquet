@@ -129,6 +129,7 @@ inline std::string ApplyHortensiaSmartPreset(Values& settings, u64 program_id, G
         session(settings.sync_memory_operations, false);
         session(settings.astc_recompression, AstcRecompression::Bc3);
         session(settings.async_presentation, true);
+        session(settings.vram_usage_mode, VramUsageMode::Aggressive);
         return integrated ? "Mario Kart World: Selevet's settings, dynamic FPS, half resolution"
                           : "Mario Kart World: Selevet's settings, dynamic FPS";
     case OcarinaOfTimeProgramId:

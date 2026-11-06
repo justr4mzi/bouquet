@@ -123,7 +123,7 @@ off for that game (Selevet saw it with memory operation syncs off on an older bu
 
 | Game | What is applied |
 | --- | --- |
-| Mario Kart World | Lichii's recommended settings (Vulkan, GPU accuracy Fast, asynchronous shaders, conservative VRAM, reactive flushing off, FIFO Relaxed VSync, handheld mode, ScaleForce, FXAA), **dynamic FPS on**, plus Selevet's tuned settings (CPU and DMA accuracy Unsafe, Immediate GPU fences, memory operation syncs off), ASTC as above |
+| Mario Kart World | Lichii's recommended settings (Vulkan, GPU accuracy Fast, asynchronous shaders, reactive flushing off, FIFO Relaxed VSync, handheld mode, Bilinear, FXAA), **dynamic FPS on**, plus Selevet's settings (CPU and DMA accuracy Unsafe, default GPU fences, memory operation syncs off, BC3 textures, asynchronous presentation, Aggressive VRAM) |
 | Ocarina of Time | Vulkan, asynchronous shaders (the Max Resolution and Dynamic FPS patches are on anyway) |
 | Donkey Kong Bananza | Vulkan, asynchronous shaders, dynamic FPS, plus Orchid's settings measured on AMD: GPU accuracy Fast, reactive flushing off, Boost GPU clock (it then stays at 1080p and mostly 60 fps pacing) |
 | Pokémon Pokopia | Vulkan, asynchronous shaders |
