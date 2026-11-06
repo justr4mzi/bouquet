@@ -174,3 +174,13 @@ Le preset corrigé (aligné sur Selevet) est sur `dev` mais **pas sur `main`**. 
    possible sans casser les autres jeux.
 3. Merge sur `main` et republie la release. Préviens Ramzi pour qu'il remesure avec le preset
    activé.
+
+## 11. Notes de version obligatoires à chaque release
+
+Chaque release (et son tag) doit avoir des notes qui disent **ce qu'elle ajoute par rapport à la
+précédente** : nouveautés, ports (avec le fork et l'auteur d'origine), corrections de bugs,
+changements de réglages ou de presets, nouveaux switches, problèmes connus, et ce qu'il faut
+tester. Fais-les à partir de `git log <tag précédent>..HEAD`, en phrases simples, en anglais
+(avec un court résumé en français si tu veux). Mets-les dans la release GitHub
+(`gh release edit <tag> --notes-file …`) et dans le message du tag annoté. Si le workflow
+génère un texte automatique, complète-le au lieu de le laisser vide.
