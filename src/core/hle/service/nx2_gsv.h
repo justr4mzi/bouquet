@@ -1714,6 +1714,7 @@ public:
     }
 
     ~INx2Vi2Session() override {
+        m_fps_logger.OnShutdown();
         // The vsync callback may be running on the HostTiming thread: empty its event list under
         // its lock first (it holds the state, not this session), then close the events.
         {
@@ -1800,6 +1801,7 @@ private:
         const auto composited = std::chrono::steady_clock::now();
         PaceToVblank(w[12], ctx.GetThread().GetOwnerProcess());
         const auto paced = std::chrono::steady_clock::now();
+        m_fps_logger.OnPresent(paced);
         if (Common::DkbFrameTrace::Enabled()) {
             const auto ms = [](auto duration) {
                 return std::chrono::duration<double, std::milli>(duration).count();
@@ -1880,6 +1882,106 @@ private:
         u32 presents{}, ran_ahead{};
         std::chrono::steady_clock::time_point last_present{};
     } m_stats{};
+    struct FpsLogger {
+        static bool Enabled() {
+            static const bool enabled = [] {
+                const char* val = std::getenv("EDEN_FPS_LOG");
+                return val == nullptr || val[0] != '0';
+            }();
+            return enabled;
+        }
+
+        std::chrono::steady_clock::time_point session_start{};
+        std::chrono::steady_clock::time_point last_report{};
+        std::chrono::steady_clock::time_point last_present{};
+        std::vector<double> window_frametimes;
+        std::vector<double> session_frametimes;
+        size_t presents_count = 0;
+
+        void OnPresent(std::chrono::steady_clock::time_point now) {
+            if (!Enabled()) {
+                return;
+            }
+            ++presents_count;
+            if (session_start == std::chrono::steady_clock::time_point{}) {
+                session_start = now;
+                last_report = now;
+                last_present = now;
+                return;
+            }
+            const double dt_ms =
+                std::chrono::duration<double, std::milli>(now - last_present).count();
+            last_present = now;
+            if (dt_ms > 0.0 && dt_ms < 1000.0) {
+                window_frametimes.push_back(dt_ms);
+                session_frametimes.push_back(dt_ms);
+            }
+            const auto elapsed =
+                std::chrono::duration_cast<std::chrono::seconds>(now - last_report).count();
+            if (elapsed >= 5 && !window_frametimes.empty()) {
+                PrintWindow();
+                window_frametimes.clear();
+                last_report = now;
+            }
+        }
+
+        void PrintWindow() {
+            if (window_frametimes.empty()) {
+                return;
+            }
+            double sum = 0.0;
+            double min_dt = 1e9;
+            double max_dt = 0.0;
+            for (double dt : window_frametimes) {
+                sum += dt;
+                min_dt = (std::min)(min_dt, dt);
+                max_dt = (std::max)(max_dt, dt);
+            }
+            const double avg_frametime = sum / static_cast<double>(window_frametimes.size());
+            const double avg_fps = avg_frametime > 0.0 ? 1000.0 / avg_frametime : 0.0;
+            const double min_fps = max_dt > 0.0 ? 1000.0 / max_dt : 0.0;
+            const double max_fps = min_dt > 0.0 ? 1000.0 / min_dt : 0.0;
+
+            std::vector<double> sorted = window_frametimes;
+            std::sort(sorted.begin(), sorted.end());
+            const size_t p99_idx = static_cast<size_t>(sorted.size() * 0.99);
+            const double p99_dt = sorted[(std::min)(p99_idx, sorted.size() - 1)];
+            const double low_1pct = p99_dt > 0.0 ? 1000.0 / p99_dt : 0.0;
+
+            LOG_INFO(Service, "FPS avg={:.1f} min={:.1f} max={:.1f} 1%low={:.1f} frametime_avg={:.2f}ms",
+                     avg_fps, min_fps, max_fps, low_1pct, avg_frametime);
+        }
+
+        void OnShutdown() {
+            if (!Enabled() || session_frametimes.empty()) {
+                return;
+            }
+            const auto now = std::chrono::steady_clock::now();
+            const double duration_sec =
+                std::chrono::duration<double>(now - session_start).count();
+            double sum = 0.0;
+            double min_dt = 1e9;
+            double max_dt = 0.0;
+            for (double dt : session_frametimes) {
+                sum += dt;
+                min_dt = (std::min)(min_dt, dt);
+                max_dt = (std::max)(max_dt, dt);
+            }
+            const double avg_frametime = sum / static_cast<double>(session_frametimes.size());
+            const double avg_fps = avg_frametime > 0.0 ? 1000.0 / avg_frametime : 0.0;
+            const double min_fps = max_dt > 0.0 ? 1000.0 / max_dt : 0.0;
+
+            std::vector<double> sorted = session_frametimes;
+            std::sort(sorted.begin(), sorted.end());
+            const size_t p99_idx = static_cast<size_t>(sorted.size() * 0.99);
+            const double p99_dt = sorted[(std::min)(p99_idx, sorted.size() - 1)];
+            const double low_1pct = p99_dt > 0.0 ? 1000.0 / p99_dt : 0.0;
+
+            LOG_INFO(Service, "=== SESSION FPS SUMMARY: duration={:.1f}s frames={} avg={:.1f} 1%low={:.1f} min={:.1f} frametime_avg={:.2f}ms ===",
+                     duration_sec, session_frametimes.size(), avg_fps, low_1pct, min_fps, avg_frametime);
+        }
+    } m_fps_logger;
+
     u32 m_previous_fence_id{~0U}; // none yet (WaitForFrame ignores ids >= 192)
     u32 m_previous_fence_value{};
 

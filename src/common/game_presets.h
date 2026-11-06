@@ -19,12 +19,19 @@ inline void SetMarioKartWorldRecommendedSettings(Values& settings, bool global) 
     session(settings.renderer_backend, RendererBackend::Vulkan);
     session(settings.resolution_setup, ResolutionSetup::Res1X);
     session(settings.gpu_accuracy, GpuAccuracy::Low);
+    session(settings.cpu_accuracy, CpuAccuracy::Unsafe);
+    session(settings.dma_accuracy, DmaAccuracy::Unsafe);
+    session(settings.gpu_fence_behavior, GpuFenceBehavior::Default);
     session(settings.use_asynchronous_shaders, true);
     session(settings.astc_recompression, AstcRecompression::Bc3);
-    session(settings.vram_usage_mode, VramUsageMode::Conservative);
+    session(settings.vram_usage_mode, VramUsageMode::Aggressive);
     session(settings.use_reactive_flushing, false);
-    session(settings.vsync_mode, VSyncMode::FifoRelaxed);
-    session(settings.use_docked_mode, ConsoleMode::Handheld);
+    session(settings.sync_memory_operations, false);
+    session(settings.async_presentation, true);
+    session(settings.vsync_mode, VSyncMode::Fifo);
+    session(settings.use_docked_mode, ConsoleMode::Docked);
+    session(settings.mkw_dynamic_fps, false);
+    session(settings.frame_gen, false);
     session(settings.scaling_filter, ScalingFilter::Bilinear);
     session(settings.anti_aliasing, AntiAliasing::Fxaa);
 }
@@ -115,23 +122,12 @@ inline std::string ApplyHortensiaSmartPreset(Values& settings, u64 program_id, G
     const auto resolution = integrated ? ResolutionSetup::Res1_2X : ResolutionSetup::Res1X;
     switch (program_id) {
     case MarioKartWorldProgramId:
-        // Lichii's recommended Mario Kart World settings, plus SmileyTatsu's dynamic FPS.
         SetMarioKartWorldRecommendedSettings(settings, false);
         session(settings.resolution_setup, resolution);
-        session(settings.mkw_dynamic_fps, true);
-        // The settings Selevet's build runs Mario Kart World with, as its log on a Ryzen 5 5600
-        // and an RX 6700 XT showed (about 10 fps more than this build had with Immediate fences,
-        // uncompressed ASTC and synchronous presentation): Unsafe CPU and DMA accuracy, default
-        // GPU fences, no memory operation syncs, BC3 textures, asynchronous presentation.
-        session(settings.cpu_accuracy, CpuAccuracy::Unsafe);
-        session(settings.dma_accuracy, DmaAccuracy::Unsafe);
-        session(settings.gpu_fence_behavior, GpuFenceBehavior::Default);
-        session(settings.sync_memory_operations, false);
-        session(settings.astc_recompression, AstcRecompression::Bc3);
-        session(settings.async_presentation, true);
-        session(settings.vram_usage_mode, VramUsageMode::Aggressive);
-        return integrated ? "Mario Kart World: Selevet's settings, dynamic FPS, half resolution"
-                          : "Mario Kart World: Selevet's settings, dynamic FPS";
+        session(settings.mkw_dynamic_fps, false);
+        session(settings.frame_gen, false);
+        return integrated ? "Mario Kart World: Hortensia optimized settings (TV mode, dynamic FPS off, half resolution)"
+                          : "Mario Kart World: Hortensia optimized settings (TV mode, dynamic FPS off)";
     case OcarinaOfTimeProgramId:
         session(settings.renderer_backend, RendererBackend::Vulkan);
         session(settings.resolution_setup, resolution);

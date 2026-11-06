@@ -1,3 +1,9 @@
+# Log FPS stats every 5s and session summary at shutdown (default enabled). Set to 0 to disable.
+#EDEN_FPS_LOG=0
+
+# Sizing for native compute SSBOs: 1 forces 8 MiB mapping for all games, 0 disables mapping sizing.
+# Default (-1) enables mapping sizing only for Fortune's Weave DLSS and keeps exact sizes for MKW.
+#EDEN_NX2_NATIVE_SSBO_SIZE=0
 # Switch NX2 - read when the Hortensia GUI starts.
 # One NAME=VALUE per line. Lines starting with # are ignored.
 # A variable already set in the environment wins over this file.

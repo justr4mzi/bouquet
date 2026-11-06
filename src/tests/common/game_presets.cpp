@@ -28,11 +28,11 @@ void CheckPreset(const Settings::Values& settings) {
     CHECK(settings.gpu_accuracy.GetValue() == Settings::GpuAccuracy::Low);
     CHECK(settings.use_asynchronous_shaders.GetValue());
     CHECK(settings.astc_recompression.GetValue() == Settings::AstcRecompression::Bc3);
-    CHECK(settings.vram_usage_mode.GetValue() == Settings::VramUsageMode::Conservative);
+    CHECK(settings.vram_usage_mode.GetValue() == Settings::VramUsageMode::Aggressive);
     CHECK_FALSE(settings.use_reactive_flushing.GetValue());
-    CHECK(settings.vsync_mode.GetValue() == Settings::VSyncMode::FifoRelaxed);
-    CHECK(settings.use_docked_mode.GetValue() == Settings::ConsoleMode::Handheld);
-    CHECK(settings.scaling_filter.GetValue() == Settings::ScalingFilter::ScaleForce);
+    CHECK(settings.vsync_mode.GetValue() == Settings::VSyncMode::Fifo);
+    CHECK(settings.use_docked_mode.GetValue() == Settings::ConsoleMode::Docked);
+    CHECK(settings.scaling_filter.GetValue() == Settings::ScalingFilter::Bilinear);
     CHECK(settings.anti_aliasing.GetValue() == Settings::AntiAliasing::Fxaa);
 }
 
@@ -53,7 +53,7 @@ void CheckPreferences(const Settings::Values& settings, bool global = false) {
 
 TEST_CASE("Display filter defaults use ScaleForce and FXAA", "[game_presets]") {
     auto settings = std::make_unique<Settings::Values>();
-    CHECK(settings->scaling_filter.GetDefault() == Settings::ScalingFilter::ScaleForce);
+    CHECK(settings->scaling_filter.GetDefault() == Settings::ScalingFilter::Bilinear);
     CHECK(settings->anti_aliasing.GetDefault() == Settings::AntiAliasing::Fxaa);
 }
 

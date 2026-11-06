@@ -786,7 +786,7 @@ struct Values {
     Setting<s32> current_user{linkage, 0, "current_user", Category::System};
 
     SwitchableSetting<ConsoleMode> use_docked_mode{linkage,
-                                                   ConsoleMode::Handheld,
+                                                   ConsoleMode::Docked,
                                                    "use_docked_mode",
                                                    Category::System,
                                                    Specialization::Radio,
