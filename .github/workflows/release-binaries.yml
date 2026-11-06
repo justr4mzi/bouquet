@@ -281,8 +281,18 @@ jobs:
             )
           fi
           if [ '${{ matrix.lto }}' = 'true' ]; then
-            # ThinLTO, as in Selevet's tuned build.
-            flags+=("-DENABLE_LTO=ON")
+            # ThinLTO, as in Selevet's tuned build. CMake's IPO check rejects this toolchain, so
+            # the flags are passed directly, with LLVM's archiver for the bitcode objects.
+            for i in "${!flags[@]}"; do
+              case "${flags[$i]}" in
+                -DCMAKE_C_FLAGS=*|-DCMAKE_CXX_FLAGS=*) flags[$i]="${flags[$i]} -flto=thin" ;;
+                -DCMAKE_EXE_LINKER_FLAGS=*) flags[$i]="${flags[$i]} -flto=thin" ;;
+              esac
+            done
+            flags+=(
+              "-DCMAKE_AR=/usr/bin/llvm-ar-$PGO_LLVM_VERSION"
+              "-DCMAKE_RANLIB=/usr/bin/llvm-ranlib-$PGO_LLVM_VERSION"
+            )
           fi
           cmake -S . -B build/release -G Ninja "${flags[@]}"
 
@@ -339,6 +349,15 @@ jobs:
           profile="-fprofile-use=$(cygpath -m "$PWD/eglantine.profdata") -Wno-backend-plugin \
             -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date"
           if [ -n "${{ matrix.march }}" ]; then profile="$profile -march=${{ matrix.march }}"; fi
+          # ThinLTO, as in Selevet's tuned build, with LLVM's archiver for the bitcode objects.
+          lto=""
+          lto_tools=""
+          if [ '${{ matrix.lto }}' = 'true' ]; then
+            lto="-flto=thin"
+            if command -v llvm-ar >/dev/null; then
+              lto_tools="-DCMAKE_AR=$(command -v llvm-ar) -DCMAKE_RANLIB=$(command -v llvm-ranlib)"
+            fi
+          fi
           cmake -S . -B build/release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
@@ -358,10 +377,10 @@ jobs:
             -DUSE_CCACHE=ON \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
-            -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld \
-            -DENABLE_LTO=${{ matrix.lto && 'ON' || 'OFF' }} \
-            "-DCMAKE_C_FLAGS=$profile" \
-            "-DCMAKE_CXX_FLAGS=$profile"
+            "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld $lto" \
+            $lto_tools \
+            "-DCMAKE_C_FLAGS=$profile $lto" \
+            "-DCMAKE_CXX_FLAGS=$profile $lto"
 
       - name: Save CPM downloads
         if: steps.cpm-cache.outputs.cache-hit != 'true'
