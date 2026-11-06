@@ -208,7 +208,16 @@ bool DmaPusher::Step() {
         }();
         if (!gpu_written && VideoCommon::GpuSplit::Get().Active()) {
             auto& split = VideoCommon::GpuSplit::Get();
-            if (skip_list_wait) {
+            const size_t bytes = size_t{header.size} * sizeof(u32);
+            bool trusted = VideoCommon::GpuSplit::ListTrustEnabled() && bytes != 0;
+            for (GPUVAddr page = dma_state.dma_get & ~GPUVAddr{0xfff};
+                 trusted && page < dma_state.dma_get + bytes; page += 0x1000) {
+                const auto device = memory_manager.GpuToCpuAddress(page);
+                trusted = device && Tegra::Nx2IsCleanPage(1, *device);
+            }
+            if (trusted) {
+                ++split.range_stats.trusted_list_entries;
+            } else if (skip_list_wait) {
                 split.Defer([this, address = GPUVAddr{dma_state.dma_get},
                              size = size_t{header.size} * sizeof(u32)] {
                     if (IsGpuWrittenCommands(address, size)) {
@@ -222,9 +231,18 @@ bool DmaPusher::Step() {
                         }
                     }
                 });
-            } else if (split.WaitForWriters()) {
-                gpu_written =
-                    IsGpuWrittenCommands(dma_state.dma_get, size_t{header.size} * sizeof(u32));
+            } else {
+                if (split.WaitForWriters()) {
+                    gpu_written = IsGpuWrittenCommands(dma_state.dma_get, bytes);
+                }
+                if (!gpu_written && VideoCommon::GpuSplit::ListTrustEnabled()) {
+                    for (GPUVAddr page = dma_state.dma_get & ~GPUVAddr{0xfff};
+                         page < dma_state.dma_get + bytes; page += 0x1000) {
+                        if (const auto device = memory_manager.GpuToCpuAddress(page)) {
+                            Tegra::Nx2MarkCleanPage(1, *device);
+                        }
+                    }
+                }
             }
         }
         // Resume and GPU-written entries need live words, even after a flush cleared dirty state.

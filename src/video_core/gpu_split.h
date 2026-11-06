@@ -14,13 +14,10 @@
 #include <unordered_map>
 
 #include "common/common_types.h"
+#include "video_core/engines/engine_interface.h"
 
 namespace Core {
 class System;
-}
-
-namespace Tegra::Engines {
-class EngineInterface;
 }
 
 namespace VideoCommon {
@@ -41,13 +38,14 @@ enum class DrainSite : u32 {
     Map,            ///< GPU memory maps before later command reads
     FrontStart,     ///< The front takes an engine's macros over
     FrontVerify,    ///< EDEN_NX2_FRONT_VERIFY
+    MacroDmaCheck,  ///< EDEN_NX2_CMDPAGE_DIAG: a macro's memory read repeated after a full drain
     Count,
 };
 
 inline constexpr std::array<const char*, static_cast<size_t>(DrainSite::Count)> drain_site_names{
     "other",       "fetch drain",     "acquire",    "semaphore flush", "fence release",
     "list writers", "list sync",      "list flush", "macro dma read",  "macro dma flush",
-    "gp sync fence", "map",           "front start", "front verify",
+    "gp sync fence", "map",           "front start", "front verify",  "macro dma check",
 };
 
 // Splits the GPU thread in two (NX2_GPU_THREAD_SPLIT.md). The GPU thread (the front) takes the
@@ -113,6 +111,9 @@ public:
             entry[1] = *segment;
         }
         Commit(words);
+        if (engine->memory_write_mask[method]) {
+            NoteMaskedWrite(engine, method);
+        }
     }
     void MultiMethod(Tegra::Engines::EngineInterface* engine, u32 method, const u32* words,
                      u32 amount, u32 methods_pending, const GPUVAddr* segment);
@@ -123,6 +124,34 @@ public:
         entry[0] = static_cast<u64>(Kind::Method) | IsLast | Direct | (u64{method & 0xffff} << 8) |
                    (u64{argument} << 32);
         Commit(1);
+        if (engine->memory_write_mask[method]) {
+            NoteMaskedWrite(engine, method);
+        }
+    }
+
+    /// EDEN_NX2_DMA_RANGES=1: the memory the next memory-writing method sent writes, in GPU
+    /// addresses (constant buffer and inline uploads, reports). Macro memory reads then wait for
+    /// those methods only when they overlap what the read covers.
+    void SetNextWriteRange(GPUVAddr begin, GPUVAddr end) {
+        next_range_begin = begin;
+        next_range_end = end;
+        next_write_kind = NextWrite::Range;
+    }
+    /// The next memory-writing method makes earlier draws' writes visible (wait for idle, sync
+    /// info) without writing memory itself.
+    void SetNextWriteVisibility() {
+        next_write_kind = NextWrite::Visibility;
+    }
+    [[nodiscard]] static bool RangesEnabled() {
+        return ranges_enabled;
+    }
+    /// Re-reads EDEN_NX2_DMA_RANGES and EDEN_NX2_LIST_TRUST (nx2_switches.txt loads after
+    /// static initialisation).
+    static void ReloadFromEnvironment();
+    /// EDEN_NX2_LIST_TRUST=1: command list entries on pages already seen to be CPU-written (no
+    /// compute or copy queued could have written them) don't wait for queued writers again.
+    [[nodiscard]] static bool ListTrustEnabled() {
+        return list_trust_enabled;
     }
 
     /// Runs `func` on the back after everything sent before it. Must be trivially copyable.
@@ -176,6 +205,54 @@ public:
     /// Waits until the back executed the work sent before the last NoteSync. Returns whether any
     /// of it was still queued.
     bool WaitForSync();
+    /// Deferred work that can write memory was just sent (puller semaphore releases, maps).
+    void NoteMemoryWrite() {
+        last_memory_write_position = write_position;
+        last_untracked_write_position = write_position;
+    }
+    /// Deferred work that writes [begin, end) only (puller semaphore releases; payloads are
+    /// written at once while the split runs).
+    void NoteMemoryWriteRange(GPUVAddr begin, GPUVAddr end) {
+        last_memory_write_position = write_position;
+        if (ranges_enabled) {
+            RecordRange(begin, end);
+        } else {
+            last_untracked_write_position = write_position;
+        }
+    }
+    /// Deferred work that writes no memory itself but orders earlier GPU work (syncpoint
+    /// increments, reference counts, cache invalidations).
+    void NoteVisibilityPoint() {
+        last_memory_write_position = write_position;
+        if (ranges_enabled) {
+            last_visibility_position = write_position;
+        } else {
+            last_untracked_write_position = write_position;
+        }
+    }
+    /// For the front's macro memory reads (MME DMA): waits until the back executed the methods
+    /// that write memory in command order (memory_write_mask, NoteMemoryWrite), the compute and
+    /// copy work and the work before the last host-level wait, all sent so far.
+    bool WaitForMemoryWriters(DrainSite site);
+    /// EDEN_NX2_DMA_RANGES: as WaitForMemoryWriters for a read of [begin, end), waiting only for
+    /// the range-tracked writes that overlap it, untracked memory writes, and, when `gpu_pages`
+    /// (the read touches pages the GPU wrote, or pages not yet seen clean), compute, copy and the
+    /// work before the last host-level wait or visibility point.
+    bool WaitForMemoryWritersIn(GPUVAddr begin, GPUVAddr end, bool gpu_pages, DrainSite site);
+    /// EDEN_NX2_PIN_FRONT / EDEN_NX2_PIN_BACK=<logical CPU>: pins the calling thread there.
+    static void PinCurrentThread(const char* variable);
+
+    /// Counters for the EDEN_NX2_DMA_RANGES report (front thread).
+    struct RangeStats {
+        u64 reads{};
+        u64 waited{};
+        u64 old_would_wait{};
+        u64 by_range{};
+        u64 by_untracked{};
+        u64 by_gpu_pages{};
+        u64 trusted_list_entries{};
+    };
+    RangeStats range_stats;
 
     /// A puller or 3D semaphore release to `address` was just sent: records its position for its
     /// address slot so a suspended channel polling `address` waits only up to the last release on
@@ -308,6 +385,50 @@ private:
     };
     std::array<QueuedReleaseEntry, 64> queued_releases{};
     size_t queued_release_next{};
+
+    enum class NextWrite : u8 { None, Range, Visibility };
+    struct RangeWrite {
+        GPUVAddr begin;
+        GPUVAddr end;
+        u64 position;
+    };
+    static constexpr size_t MaxRangeWrites = 128;
+
+    void NoteMaskedWrite(const Tegra::Engines::EngineInterface* engine, u32 method) {
+        last_memory_write_position = write_position;
+        if (!ranges_enabled) {
+            return;
+        }
+        switch (next_write_kind) {
+        case NextWrite::Range:
+            RecordRange(next_range_begin, next_range_end);
+            break;
+        case NextWrite::Visibility:
+            last_visibility_position = write_position;
+            break;
+        case NextWrite::None:
+            if (engine->writer_work_mask[method]) {
+                last_visibility_position = write_position;
+            } else {
+                last_untracked_write_position = write_position;
+            }
+            break;
+        }
+        next_write_kind = NextWrite::None;
+    }
+    void RecordRange(GPUVAddr begin, GPUVAddr end);
+
+    static inline bool ranges_enabled{};
+    static inline bool list_trust_enabled{};
+    std::array<RangeWrite, MaxRangeWrites> range_writes{};
+    size_t range_count{};
+    size_t range_head{};
+    GPUVAddr next_range_begin{};
+    GPUVAddr next_range_end{};
+    NextWrite next_write_kind{};
+    u64 last_memory_write_position{};
+    u64 last_untracked_write_position{};
+    u64 last_visibility_position{};
     u64 write_position{};
     u64 last_writer_position{};
     u64 last_sync_position{};

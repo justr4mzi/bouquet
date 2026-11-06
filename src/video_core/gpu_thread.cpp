@@ -53,6 +53,7 @@ void ThreadManager::StartThread(VideoCore::RendererBase& renderer, Core::Fronten
         Common::SetCurrentThreadName("GPU");
         Common::SetCurrentThreadPriority(Common::ThreadPriority::Critical);
         Common::SetCurrentThreadToPerformanceCores();
+        VideoCommon::GpuSplit::PinCurrentThread("EDEN_NX2_PIN_FRONT");
         system.RegisterHostThread();
 
         auto current_context = context.Acquire();
@@ -107,6 +108,7 @@ void ThreadManager::StartThread(VideoCore::RendererBase& renderer, Core::Fronten
                         split.Drain(VideoCommon::DrainSite::Map);
                     } else {
                         split.DeferFunction(std::move(run->func));
+                        split.NoteMemoryWrite();
                     }
                 } else if (const auto* flush = std::get_if<FlushRegionCommand>(&next.data)) {
                     split.Defer([rasterizer_ptr, addr = flush->addr, size = flush->size] {

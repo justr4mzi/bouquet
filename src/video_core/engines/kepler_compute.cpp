@@ -50,6 +50,11 @@ KeplerCompute::KeplerCompute(MemoryManager& memory_manager_)
                      fmt::ptr(this), memory_manager.GetID());
         };
     }
+    // Register writes and dispatches: shader work (storage writes mark their pages GPU-written).
+    // The inline upload (exec_upload, data_upload) writes memory directly.
+    writer_work_mask.set();
+    writer_work_mask[KEPLER_COMPUTE_REG_INDEX(exec_upload)] = false;
+    writer_work_mask[KEPLER_COMPUTE_REG_INDEX(data_upload)] = false;
     execution_mask.reset();
     execution_mask[KEPLER_COMPUTE_REG_INDEX(exec_upload)] = true;
     execution_mask[KEPLER_COMPUTE_REG_INDEX(data_upload)] = true;
