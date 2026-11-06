@@ -4,6 +4,8 @@
 // SPDX-FileCopyrightText: Copyright 2019 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <string>
+#include <unordered_set>
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -1371,6 +1373,42 @@ void RasterizerVulkan::DispatchCompute() {
     if (!pipeline) {
         if (kepler_compute->IsNativeMode()) throw Shader::RuntimeError("Native compute pipeline unavailable");
         return;
+    }
+    {
+        // From Selevet. Each compute shader's first dispatch is logged, so a GPU hang shows which
+        // new shader ran last. EDEN_NX2_SKIP_COMPUTE=hash,hash skips those shaders.
+        static const std::unordered_set<u64> skip_compute{[] {
+            std::unordered_set<u64> hashes;
+            if (const char* value = std::getenv("EDEN_NX2_SKIP_COMPUTE")) {
+                std::string_view list{value};
+                while (!list.empty()) {
+                    const size_t comma = list.find(',');
+                    std::string item{list.substr(0, comma)};
+                    std::erase_if(item, [](char c) { return c == ' ' || c == '\t'; });
+                    if (!item.empty()) {
+                        hashes.insert(std::strtoull(item.c_str(), nullptr, 16));
+                    }
+                    list = comma == std::string_view::npos ? std::string_view{}
+                                                           : list.substr(comma + 1);
+                }
+            }
+            return hashes;
+        }()};
+        static std::unordered_set<u64> dispatched_compute;
+        const u64 hash = pipeline->ShaderHash();
+        const bool skipped = skip_compute.contains(hash);
+        if (dispatched_compute.insert(hash).second) {
+            const auto& launch = kepler_compute->launch_description;
+            LOG_INFO(Render_Vulkan,
+                     "Nx2 first dispatch: compute {:016x} grid {}x{}x{} block {}x{}x{}{}", hash,
+                     launch.grid_dim_x.Value(), launch.grid_dim_y.Value(),
+                     launch.grid_dim_z.Value(), launch.block_dim_x.Value(),
+                     launch.block_dim_y.Value(), launch.block_dim_z.Value(),
+                     skipped ? " (skipped: EDEN_NX2_SKIP_COMPUTE)" : "");
+        }
+        if (skipped) {
+            return;
+        }
     }
     std::scoped_lock lock{texture_cache.mutex, buffer_cache.mutex};
     std::optional<ByteAddressedShadow> byte_addressed_shadow;
