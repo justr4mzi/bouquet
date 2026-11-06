@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "common/common_types.h"
+#include "common/thread.h"
 
 namespace Tegra {
 
@@ -400,6 +401,11 @@ public:
         return waiters;
     }
 
+    void SetWakeEvent(Common::Event* event) {
+        std::scoped_lock lk{mutex};
+        wake_event = event;
+    }
+
     void Add(const void* owner, u64 device_address, u32 value, u32 operation) {
         std::scoped_lock lk{mutex};
         std::erase_if(waiters, [owner](const Waiter& w) { return w.owner == owner; });
@@ -463,6 +469,7 @@ private:
     std::mutex mutex;
     std::vector<Waiter> waiters;
     std::atomic<size_t> count{};
+    Common::Event* wake_event{};
 };
 
 } // namespace Tegra
