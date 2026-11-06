@@ -15,12 +15,11 @@ void SetConflictingPreferences(Settings::Values& settings, bool per_game) {
     set(settings.gpu_accuracy, Settings::GpuAccuracy::High);
     set(settings.use_asynchronous_shaders, false);
     set(settings.astc_recompression, Settings::AstcRecompression::Uncompressed);
-    set(settings.vram_usage_mode, Settings::VramUsageMode::Aggressive);
+    set(settings.vram_usage_mode, Settings::VramUsageMode::Conservative);
     set(settings.use_reactive_flushing, true);
     set(settings.vsync_mode, Settings::VSyncMode::Immediate);
     set(settings.scaling_filter, Settings::ScalingFilter::NearestNeighbor);
     set(settings.anti_aliasing, Settings::AntiAliasing::Smaa);
-    set(settings.mkw_dynamic_fps, false);
 }
 
 void CheckPreset(const Settings::Values& settings) {
@@ -29,13 +28,12 @@ void CheckPreset(const Settings::Values& settings) {
     CHECK(settings.gpu_accuracy.GetValue() == Settings::GpuAccuracy::Low);
     CHECK(settings.use_asynchronous_shaders.GetValue());
     CHECK(settings.astc_recompression.GetValue() == Settings::AstcRecompression::Bc3);
-    CHECK(settings.vram_usage_mode.GetValue() == Settings::VramUsageMode::Conservative);
+    CHECK(settings.vram_usage_mode.GetValue() == Settings::VramUsageMode::Aggressive);
     CHECK_FALSE(settings.use_reactive_flushing.GetValue());
-    CHECK(settings.vsync_mode.GetValue() == Settings::VSyncMode::FifoRelaxed);
-    CHECK(settings.use_docked_mode.GetValue() == Settings::ConsoleMode::Handheld);
-    CHECK(settings.scaling_filter.GetValue() == Settings::ScalingFilter::ScaleForce);
+    CHECK(settings.vsync_mode.GetValue() == Settings::VSyncMode::Fifo);
+    CHECK(settings.use_docked_mode.GetValue() == Settings::ConsoleMode::Docked);
+    CHECK(settings.scaling_filter.GetValue() == Settings::ScalingFilter::Bilinear);
     CHECK(settings.anti_aliasing.GetValue() == Settings::AntiAliasing::Fxaa);
-    CHECK(settings.mkw_dynamic_fps.GetValue());
 }
 
 void CheckPreferences(const Settings::Values& settings, bool global = false) {
@@ -45,7 +43,7 @@ void CheckPreferences(const Settings::Values& settings, bool global = false) {
     CHECK_FALSE(settings.use_asynchronous_shaders.GetValue(global));
     CHECK(settings.astc_recompression.GetValue(global) ==
           Settings::AstcRecompression::Uncompressed);
-    CHECK(settings.vram_usage_mode.GetValue(global) == Settings::VramUsageMode::Aggressive);
+    CHECK(settings.vram_usage_mode.GetValue(global) == Settings::VramUsageMode::Conservative);
     CHECK(settings.use_reactive_flushing.GetValue(global));
     CHECK(settings.vsync_mode.GetValue(global) == Settings::VSyncMode::Immediate);
     CHECK(settings.scaling_filter.GetValue(global) == Settings::ScalingFilter::NearestNeighbor);
@@ -53,9 +51,9 @@ void CheckPreferences(const Settings::Values& settings, bool global = false) {
 }
 } // namespace
 
-TEST_CASE("Display filter defaults use ScaleForce and FXAA", "[game_presets]") {
+TEST_CASE("Display filter defaults use Bilinear and FXAA", "[game_presets]") {
     auto settings = std::make_unique<Settings::Values>();
-    CHECK(settings->scaling_filter.GetDefault() == Settings::ScalingFilter::ScaleForce);
+    CHECK(settings->scaling_filter.GetDefault() == Settings::ScalingFilter::Bilinear);
     CHECK(settings->anti_aliasing.GetDefault() == Settings::AntiAliasing::Fxaa);
 }
 

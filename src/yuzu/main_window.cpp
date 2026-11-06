@@ -8,9 +8,12 @@
 #undef VMA_IMPLEMENTATION
 #endif
 
+#include <QSysInfo>
 #include <boost/algorithm/string/split.hpp>
 #include "common/fs/path_util.h"
 #include "common/game_presets.h"
+#include <QSignalBlocker>
+#include <QTimer>
 #include "common/settings.h"
 #include "common/settings_enums.h"
 #include "frontend_common/settings_generator.h"
@@ -73,7 +76,14 @@
 #include <QActionGroup>
 #include <QCheckBox>
 #include <QClipboard>
+#include <fstream>
+#include <thread>
+#include <filesystem>
 #include <QDesktopServices>
+#include <QUrl>
+#include <QSysInfo>
+#include <QDateTime>
+#include <QStandardPaths>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -558,6 +568,84 @@ MainWindow::MainWindow(bool has_broken_vulkan)
                 LibraryAppletParameters(0x010000000000100Dull, Service::AM::AppletId::QLaunch));
         }
     }
+    // Hortensia: Emulation > "Optimized settings per game" turns the smart presets on and off.
+    {
+        QAction* const smart = ui->menu_Emulation->addAction(tr("Optimized Settings per Game"));
+        smart->setCheckable(true);
+        smart->setChecked(Settings::values.hortensia_smart_presets.GetValue());
+        connect(smart, &QAction::toggled, this, [this](bool checked) {
+            Settings::values.hortensia_smart_presets = checked;
+            Settings::values.hortensia_smart_presets_asked = true;
+            config->SaveAllValues();
+        });
+        hortensia_smart_presets_action = smart;
+    }
+    // Hortensia: Help > Create Bug Report gathers what a report needs in one folder.
+    {
+        QAction* const report = ui->menu_Help->addAction(tr("Create Bug Report..."));
+        connect(report, &QAction::triggered, this, &MainWindow::OnCreateBugReport);
+    }
+    // Hortensia: offer the optimized settings once, at the first start.
+    if (!Settings::values.hortensia_smart_presets_asked.GetValue()) {
+        // A configuration imported from Lichii or Eden brings its theme along: the first start
+        // switches to Hortensia's own (Configure > General > UI can change it back).
+        UISettings::values.theme = "hortensia";
+        UpdateUITheme();
+        // Pick the strongest GPU once: a dedicated card over the processor's integrated graphics
+        // (a Ryzen with a Radeon RX card lists both, the integrated one sometimes first).
+        if (vk_device_records.size() > 1) {
+            const auto score = [](const std::string& name) {
+                const auto has = [&name](const char* word) {
+                    return name.find(word) != std::string::npos;
+                };
+                if (has("NVIDIA") || has("GeForce") || has("RTX") || has("GTX")) {
+                    return 3;
+                }
+                if ((has("AMD") || has("Radeon")) && (has(" RX ") || has("RX ") || has("PRO W"))) {
+                    return 3;
+                }
+                if (has("Arc")) {
+                    return 2;
+                }
+                if (has("llvmpipe") || has("SwiftShader") || has("Microsoft Basic")) {
+                    return -1;
+                }
+                return 0;
+            };
+            size_t best = 0;
+            for (size_t i = 1; i < vk_device_records.size(); ++i) {
+                if (score(vk_device_records[i].name) > score(vk_device_records[best].name)) {
+                    best = i;
+                }
+            }
+            if (best != static_cast<size_t>(Settings::values.vulkan_device.GetValue())) {
+                Settings::values.vulkan_device.SetValue(static_cast<u32>(best));
+                LOG_INFO(Frontend, "Hortensia: using GPU {} ({})", best, vk_device_records[best].name);
+            }
+        }
+        QTimer::singleShot(0, this, [this] {
+            Settings::values.hortensia_smart_presets_asked = true;
+            Settings::values.hortensia_smart_presets =
+                QMessageBox::question(
+                    this, tr("Hortensia optimized settings"),
+                    tr("Let Hortensia set the best settings for each game automatically?\n\n"
+                       "When you start Mario Kart World, Ocarina of Time, Donkey Kong Bananza, "
+                       "Pokemon Pokopia or Splatoon Raiders, Hortensia applies the settings the "
+                       "emulator forks recommend for it, adapted to your graphics card (NVIDIA, "
+                       "AMD or Intel). They apply while the game runs; your saved settings are not "
+                       "changed.\n\nYou can change this later in the Emulation menu (Optimized "
+                       "Settings per Game)."),
+                    QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes) == QMessageBox::Yes;
+            LOG_INFO(Config, "Hortensia optimized settings: {}",
+                     Settings::values.hortensia_smart_presets.GetValue());
+            if (hortensia_smart_presets_action != nullptr) {
+                const QSignalBlocker blocker{hortensia_smart_presets_action};
+                hortensia_smart_presets_action->setChecked(
+                    Settings::values.hortensia_smart_presets.GetValue());
+            }
+            config->SaveAllValues();
+        });
+    }
 }
 
 MainWindow::~MainWindow() {
@@ -981,13 +1069,18 @@ void MainWindow::InitializeWidgets() {
     game_fps_label = new QLabel();
     game_fps_label->setToolTip(tr("How many frames per second the game is currently displaying. "
                                   "This will vary from game to game and scene to scene."));
+    display_fps_label = new QLabel();
+    display_fps_label->setToolTip(
+        tr("How many frames per second are sent to the display, including the frames frame "
+           "generation adds. Without frame generation this matches the game's FPS; with it on, "
+           "it should be higher, up to your monitor's refresh rate."));
     emu_frametime_label = new QLabel();
     emu_frametime_label->setToolTip(
         tr("Time taken to emulate a Switch frame, not counting framelimiting or v-sync. For "
            "full-speed emulation this should be at most 16.67 ms."));
 
     for (auto& label : {shader_building_label, res_scale_label, emu_speed_label, game_fps_label,
-                        emu_frametime_label}) {
+                        display_fps_label, emu_frametime_label}) {
         label->setVisible(false);
         label->setFrameStyle(QFrame::NoFrame);
         label->setContentsMargins(4, 0, 4, 0);
@@ -1096,6 +1189,61 @@ void MainWindow::InitializeWidgets() {
     statusBar()->insertPermanentWidget(0, post_shader_status_button);
 #endif
 
+    // Frame generation: click toggles it, right-click picks the multiplier and the type.
+    frame_gen_status_button = new QPushButton();
+    frame_gen_status_button->setObjectName(QStringLiteral("TogglableStatusBarButton"));
+    frame_gen_status_button->setFocusPolicy(Qt::NoFocus);
+    frame_gen_status_button->setCheckable(true);
+    frame_gen_status_button->setToolTip(
+        tr("Frame generation: inserts generated frames between the game's frames.\n"
+           "Click to turn it on or off; right-click for the multiplier and type.\n"
+           "Lossless Scaling (LSFG) needs Lossless.dll from Lossless Scaling in the "
+           "lossless folder."));
+    connect(frame_gen_status_button, &QPushButton::clicked, this, [this] {
+        Settings::values.frame_gen.SetValue(!Settings::values.frame_gen.GetValue());
+        UpdateFrameGenText();
+    });
+    UpdateFrameGenText();
+    frame_gen_status_button->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(frame_gen_status_button, &QPushButton::customContextMenuRequested,
+            [this](const QPoint& menu_location) {
+                QMenu context_menu;
+                const bool enabled = Settings::values.frame_gen.GetValue();
+                QAction* off = context_menu.addAction(tr("Off"), [this] {
+                    Settings::values.frame_gen.SetValue(false);
+                    UpdateFrameGenText();
+                });
+                off->setCheckable(true);
+                off->setChecked(!enabled);
+                for (u32 multiplier = Settings::MIN_FRAME_GEN_MULTIPLIER;
+                     multiplier <= Settings::MAX_FRAME_GEN_MULTIPLIER; ++multiplier) {
+                    QAction* action =
+                        context_menu.addAction(tr("%1x frames").arg(multiplier), [this, multiplier] {
+                            Settings::values.frame_gen_multiplier.SetValue(multiplier);
+                            Settings::values.frame_gen.SetValue(true);
+                            UpdateFrameGenText();
+                        });
+                    action->setCheckable(true);
+                    action->setChecked(enabled && Settings::FrameGenMultiplier() == multiplier);
+                }
+                context_menu.addSeparator();
+                const auto type = Settings::values.frame_gen_type.GetValue();
+                for (const auto& [value, text] :
+                     {std::pair{Settings::FrameGenType::Fsr3,
+                                tr("Optical Flow Interpolation (built-in)")},
+                      std::pair{Settings::FrameGenType::Lsfg, tr("Lossless Scaling (LSFG)")}}) {
+                    QAction* action = context_menu.addAction(text, [this, value] {
+                        Settings::values.frame_gen_type.SetValue(value);
+                        UpdateFrameGenText();
+                    });
+                    action->setCheckable(true);
+                    action->setChecked(type == value);
+                }
+                context_menu.exec(frame_gen_status_button->mapToGlobal(menu_location));
+                frame_gen_status_button->repaint();
+            });
+    statusBar()->insertPermanentWidget(0, frame_gen_status_button);
+
     // setup AA button
     aa_status_button = new QPushButton();
     aa_status_button->setObjectName(QStringLiteral("TogglableStatusBarButton"));
@@ -1196,6 +1344,16 @@ void MainWindow::InitializeWidgets() {
                 gpu_accuracy_button->repaint();
             });
     statusBar()->insertPermanentWidget(0, gpu_accuracy_button);
+
+    // Frame generation on and off during a game (from ZendNevs's Eglantine fork).
+    frame_gen_button = new QPushButton();
+    frame_gen_button->setObjectName(QStringLiteral("TogglableStatusBarButton"));
+    frame_gen_button->setCheckable(true);
+    frame_gen_button->setFocusPolicy(Qt::NoFocus);
+    frame_gen_button->setToolTip(tr("Turn frame generation on or off, even during a game"));
+    connect(frame_gen_button, &QPushButton::clicked, this, &MainWindow::OnToggleFrameGen);
+    UpdateFrameGenButton();
+    statusBar()->insertPermanentWidget(0, frame_gen_button);
 
     // Setup Renderer API button
     renderer_status_button = new QPushButton();
@@ -1342,6 +1500,7 @@ void MainWindow::InitializeHotkeys() {
     connect_shortcut(QStringLiteral("Change Adapting Filter"), &MainWindow::OnToggleAdaptingFilter);
     connect_shortcut(QStringLiteral("Change Docked Mode"), &MainWindow::OnToggleDockedMode);
     connect_shortcut(QStringLiteral("Change GPU Mode"), &MainWindow::OnToggleGpuAccuracy);
+    connect_shortcut(QStringLiteral("Toggle Frame Generation"), &MainWindow::OnToggleFrameGen);
     connect_shortcut(QStringLiteral("Audio Mute/Unmute"), &MainWindow::OnMute);
     connect_shortcut(QStringLiteral("Audio Volume Down"), &MainWindow::OnDecreaseVolume);
     connect_shortcut(QStringLiteral("Audio Volume Up"), &MainWindow::OnIncreaseVolume);
@@ -1453,6 +1612,14 @@ void MainWindow::OnAppFocusStateChanged(Qt::ApplicationState state) {
 }
 
 void MainWindow::ConnectWidgetEvents() {
+    connect(game_list, &GameList::ReportCompatibilityRequested, this, [this](u64 program_id) {
+        if (!report_session || report_session->program_id != program_id || emulation_running ||
+            boot_in_progress || close_pending) {
+            return;
+        }
+        CompatibilityReporting::Dialog dialog(*report_session, this);
+        dialog.exec();
+    });
     connect(game_list, &GameList::BootGame, this, &MainWindow::BootGameFromList);
     connect(game_list, &GameList::GameChosen, this, &MainWindow::OnGameListLoadFile);
     connect(game_list, &GameList::OpenDirectory, this, &MainWindow::OnGameListOpenDirectory);
@@ -1935,7 +2102,9 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
     if (close_pending) {
         return;
     }
-    LOG_INFO(Frontend, "Eglantine starting...");
+    LOG_INFO(Frontend, "Hortensia starting...");
+    report_session.reset();
+    game_list->SetReportableProgramId(0);
 
     if (params.program_id == 0 ||
         params.program_id > static_cast<u64>(Service::AM::AppletProgramId::MaxProgramId)) {
@@ -1969,6 +2138,26 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
         QtCommon::system->ApplySettings();
     }
 
+    // Hortensia smart presets: each supported game's optimized settings, adapted to the GPU vendor,
+    // applied for this session without asking.
+    if (Settings::values.hortensia_smart_presets.GetValue()) {
+        Settings::GpuVendor vendor = Settings::GpuVendor::Unknown;
+        const auto device = static_cast<size_t>(Settings::values.vulkan_device.GetValue());
+        if (device < vk_device_records.size()) {
+            vendor = Settings::GpuVendorFromName(vk_device_records[device].name);
+        }
+        const std::string summary =
+            Settings::ApplyHortensiaSmartPreset(Settings::values, title_id, vendor);
+        if (!summary.empty()) {
+            QtCommon::system->ApplySettings();
+            Settings::UpdateGPUAccuracy();
+            LOG_INFO(Config, "Hortensia optimized settings ({} GPU): {}",
+                     Settings::GpuVendorName(vendor), summary);
+        }
+        // The MKW question below is answered by the option.
+        asked_recommended_mkw_settings = true;
+        use_recommended_mkw_settings = false;
+    }
     if (title_id == Settings::MarioKartWorldProgramId && !asked_recommended_mkw_settings) {
         asked_recommended_mkw_settings = true;
         use_recommended_mkw_settings =
@@ -1976,9 +2165,9 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
                 this, tr("Recommended Mario Kart World settings"),
                 tr("Use the recommended settings for Mario Kart World?\n\n"
                    "Vulkan, 1x resolution, GPU Fast, asynchronous shaders, BC3, conservative VRAM, "
-                   "reactive flushing off, FIFO Relaxed VSync, handheld mode, ScaleForce, and "
+                   "reactive flushing off, FIFO Relaxed VSync, handheld mode, Bilinear, and "
                    "FXAA.\n\n"
-                   "They apply to Mario Kart World until Eglantine is closed. Your saved settings "
+                   "They apply to Mario Kart World until Hortensia is closed. Your saved settings "
                    "are not changed."),
                 QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes;
         LOG_INFO(Config, "MKW recommended settings accepted: {}", use_recommended_mkw_settings);
@@ -2045,6 +2234,80 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
         return;
     }
     LOG_INFO(Frontend, "Core load completed: elapsed_ms={}", load_timer.elapsed());
+
+    const auto report_program_id = QtCommon::system->GetApplicationProcessProgramID();
+    if (Settings::CurrentProgramIsSwitch2() && report_program_id != 0) {
+        auto& session = report_session.emplace();
+        session.program_id = report_program_id;
+        const FileSys::PatchManager pm(report_program_id,
+                                       QtCommon::system->GetFileSystemController(),
+                                       QtCommon::system->GetContentProvider());
+        if (const auto metadata = pm.GetControlMetadata(); metadata.first) {
+            session.title = QString::fromStdString(metadata.first->GetApplicationName());
+            session.game_version = QString::fromStdString(metadata.first->GetVersionString());
+        }
+        if (session.title.trimmed().isEmpty()) {
+            std::string title;
+            if (QtCommon::system->GetGameName(title) == Loader::ResultStatus::Success) {
+                session.title = QString::fromStdString(title);
+            }
+        }
+        FileSys::VirtualFile update_raw;
+        auto& report_loader = QtCommon::system->GetAppLoader();
+        report_loader.ReadUpdateRaw(update_raw);
+        QList<CompatibilityReporting::Addon> mods;
+        QList<CompatibilityReporting::Addon> updates;
+        for (const auto& patch : pm.GetPatches(update_raw)) {
+            auto* entries = patch.type == FileSys::PatchType::Mod      ? &mods
+                            : patch.type == FileSys::PatchType::Update ? &updates
+                                                                       : nullptr;
+            if (entries) {
+                entries->push_back({QString::fromStdString(patch.name),
+                                    QString::fromStdString(patch.version), patch.enabled});
+            }
+        }
+        if (report_loader.GetFileType() == Loader::FileType::NUP) {
+            std::string version;
+            if (report_loader.ReadDisplayVersion(version) == Loader::ResultStatus::Success &&
+                !version.empty()) {
+                session.game_version = QString::fromStdString(version);
+                updates.push_back(
+                    {QStringLiteral("Loaded NUP package"), session.game_version, true});
+            }
+        }
+        session.mods = CompatibilityReporting::SummarizeEnabledAddons(mods);
+        session.updates = CompatibilityReporting::SummarizeEnabledAddons(updates);
+        session.build = QStringLiteral("Hortensia %1 (%2)")
+                            .arg(QString::fromUtf8(Common::g_build_version),
+                                 QString::fromUtf8(Common::g_scm_rev).left(12));
+#ifdef ARCHITECTURE_x86_64
+        session.cpu = QString::fromLatin1(Common::g_cpu_caps.cpu_string,
+                                          sizeof(Common::g_cpu_caps.cpu_string))
+                          .section(QChar{}, 0, 0)
+                          .trimmed();
+#endif
+        session.os = QSysInfo::prettyProductName();
+        const auto memory = Common::GetMemInfo().TotalPhysicalMemory;
+        if (memory != 0) {
+            session.ram =
+                QStringLiteral("%1 GiB").arg(double(memory) / (1024 * 1024 * 1024), 0, 'f', 1);
+        }
+        const auto& device_info = QtCommon::system->Renderer().GetDeviceInfo();
+        session.gpu = QString::fromStdString(device_info.model);
+        session.driver = QString::fromStdString(device_info.driver);
+        session.graphics_api = QString::fromStdString(device_info.api);
+        session.settings =
+            QStringLiteral("Launch settings: %1 mode; resolution scale %2x; "
+                           "GPU accuracy %3; asynchronous shaders %4.")
+                .arg(Settings::IsDockedMode() ? QStringLiteral("Docked")
+                                              : QStringLiteral("Handheld"))
+                .arg(Settings::values.resolution_info.up_factor)
+                .arg(Settings::values.gpu_accuracy.GetValue() == Settings::GpuAccuracy::High
+                         ? QStringLiteral("High")
+                         : QStringLiteral("Low"))
+                .arg(Settings::values.use_asynchronous_shaders.GetValue() ? QStringLiteral("on")
+                                                                          : QStringLiteral("off"));
+    }
 
     QtCommon::system->SetShuttingDown(false);
     game_list->setDisabled(true);
@@ -2276,6 +2539,8 @@ void MainWindow::OnEmulationStopped() {
 
     emulation_running = false;
 
+    game_list->SetReportableProgramId(report_session ? report_session->program_id : 0);
+
     discord_rpc->Update();
     Common::FeralGamemode::Stop();
 
@@ -2315,6 +2580,8 @@ void MainWindow::OnEmulationStopped() {
     res_scale_label->setVisible(false);
     emu_speed_label->setVisible(false);
     game_fps_label->setVisible(false);
+    display_fps_label->setVisible(false);
+    display_frames_time = {};
     emu_frametime_label->setVisible(false);
     renderer_status_button->setEnabled(!UISettings::values.has_broken_vulkan);
     refresh_button->setEnabled(true);
@@ -2841,13 +3108,15 @@ void MainWindow::OnGameListShowList(bool show) {
 
 void MainWindow::OnGameListOpenPerGameProperties(const std::string& file) {
     u64 title_id{};
-    const auto v_file = Core::GetGameFileFromPath(QtCommon::vfs, file);
-    const auto loader = Loader::GetLoader(*QtCommon::system, v_file);
+    {
+        const auto v_file = Core::GetGameFileFromPath(QtCommon::vfs, file);
+        const auto loader = Loader::GetLoader(*QtCommon::system, v_file);
 
-    if (loader == nullptr || loader->ReadProgramId(title_id) != Loader::ResultStatus::Success) {
-        QMessageBox::information(this, tr("Properties"),
-                                 tr("The game properties could not be loaded."));
-        return;
+        if (loader == nullptr || loader->ReadProgramId(title_id) != Loader::ResultStatus::Success) {
+            QMessageBox::information(this, tr("Properties"),
+                                     tr("The game properties could not be loaded."));
+            return;
+        }
     }
 
     OpenPerGameConfiguration(title_id, file);
@@ -3785,6 +4054,18 @@ void MainWindow::OnToggleGpuAccuracy() {
     UpdateGPUAccuracyButton();
 }
 
+void MainWindow::OnToggleFrameGen() {
+    // The renderer and the swapchain read it every frame.
+    Settings::values.frame_gen.SetValue(!Settings::values.frame_gen.GetValue());
+    UpdateFrameGenButton();
+}
+
+void MainWindow::UpdateFrameGenButton() {
+    const bool on = Settings::values.frame_gen.GetValue();
+    frame_gen_button->setText(on ? tr("FG ON") : tr("FG OFF"));
+    frame_gen_button->setChecked(on);
+}
+
 void MainWindow::OnMute() {
     Settings::values.audio_muted = !Settings::values.audio_muted;
     UpdateVolumeUI();
@@ -3866,11 +4147,9 @@ void MainWindow::OnConfigurePerGame() {
 }
 
 void MainWindow::OpenPerGameConfiguration(u64 title_id, const std::string& file_name) {
-    const auto v_file = Core::GetGameFileFromPath(QtCommon::vfs, file_name);
-
     Settings::SetConfiguringGlobal(false);
     ConfigurePerGame dialog(this, title_id, file_name, vk_device_records, *QtCommon::system);
-    dialog.LoadFromFile(v_file);
+    dialog.LoadFromFile(Core::GetGameFileFromPath(QtCommon::vfs, file_name));
 
     const auto result = dialog.exec();
 
@@ -3999,6 +4278,60 @@ void MainWindow::OnOpenModFolder() {
 
 void MainWindow::OnOpenLogFolder() {
     QtCommon::Game::OpenLogFolder();
+}
+
+void MainWindow::OnCreateBugReport() {
+    namespace fs = std::filesystem;
+    const QString desktop = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
+    const QString folder_name =
+        QStringLiteral("Hortensia-bug-report-%1")
+            .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmm")));
+    const fs::path folder = fs::path{desktop.toStdU16String()} / folder_name.toStdU16String();
+    std::error_code error;
+    fs::create_directories(folder, error);
+    if (error) {
+        QMessageBox::warning(this, tr("Create Bug Report"),
+                             tr("Could not create the folder on the desktop."));
+        return;
+    }
+    const auto copy = [&folder](const fs::path& from, std::string_view name) {
+        std::error_code ignored;
+        if (fs::is_regular_file(from, ignored)) {
+            fs::copy_file(from, folder / name, fs::copy_options::overwrite_existing, ignored);
+        }
+    };
+    const fs::path log_dir = Common::FS::GetEdenPath(Common::FS::EdenPath::LogDir);
+    copy(log_dir / "hortensia_log.txt", "hortensia_log.txt");
+    copy(log_dir / "hortensia_log.txt.old", "hortensia_log.txt.old");
+    const fs::path config_dir = Common::FS::GetEdenPath(Common::FS::EdenPath::ConfigDir);
+    copy(config_dir / "qt-config.ini", "qt-config.ini");
+    copy(Common::FS::GetEdenPath(Common::FS::EdenPath::EdenDir) / "nx2_switches.txt",
+         "nx2_switches (yours).txt");
+
+    std::string info = fmt::format("Hortensia {} ({})\n", Common::g_build_version,
+                                   Common::g_build_release_platform);
+    info += fmt::format("OS: {}\n", QSysInfo::prettyProductName().toStdString());
+#ifdef ARCHITECTURE_x86_64
+    info += fmt::format("CPU: {}\n", Common::g_cpu_caps.cpu_string);
+#endif
+    info += fmt::format("CPU threads: {}\n", std::thread::hardware_concurrency());
+    const auto selected = static_cast<size_t>(Settings::values.vulkan_device.GetValue());
+    for (size_t i = 0; i < vk_device_records.size(); ++i) {
+        info += fmt::format("GPU {}{}: {}\n", i, i == selected ? " (selected)" : "",
+                            vk_device_records[i].name);
+    }
+    info += fmt::format("Optimized settings per game: {}\n",
+                        Settings::values.hortensia_smart_presets.GetValue() ? "on" : "off");
+    std::ofstream{folder / "system.txt"} << info;
+
+    QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromStdU16String(folder.u16string())));
+    QMessageBox::information(
+        this, tr("Create Bug Report"),
+        tr("The bug report is on your desktop, in the folder %1.\n\nIt holds your log, your "
+           "settings, your nx2_switches.txt and your PC's CPU and graphics card. Zip it and attach "
+           "it to an issue on github.com/justr4mzi/hortensia, with what you did and what went "
+           "wrong. Close Hortensia first if a game was running, so the log is complete.")
+            .arg(folder_name));
 }
 
 void MainWindow::OnVerifyInstalledContents() {
@@ -4549,6 +4882,11 @@ void MainWindow::OnApplicationChanged(u64 program_id) {
     if (!emulation_running || program_id == 0)
         return;
 
+    if (report_session && report_session->program_id != program_id) {
+        report_session.reset();
+        game_list->SetReportableProgramId(0);
+    }
+
     std::string title_name;
     std::string title_version;
 
@@ -4701,11 +5039,32 @@ void MainWindow::UpdateStatusBar() {
 
     game_fps_label->setText(fpsText);
 
+    // Frames sent to the display per second, over at least a second (the bar updates twice a second).
+    const u64 display_frames = QtCommon::system->GPU().Renderer().PresentedFrameCount();
+    const auto now = std::chrono::steady_clock::now();
+    if (display_frames_time == std::chrono::steady_clock::time_point{} ||
+        display_frames < display_frames_seen) {
+        display_fps_label->clear();
+        display_frames_seen = display_frames;
+        display_frames_time = now;
+    } else if (const double seconds =
+                   std::chrono::duration<double>(now - display_frames_time).count();
+               seconds >= 1.0) {
+        display_fps_label->setText(
+            tr("Display: %1 FPS")
+                .arg(std::round(static_cast<double>(display_frames - display_frames_seen) /
+                                seconds),
+                     0, 'f', 0));
+        display_frames_seen = display_frames;
+        display_frames_time = now;
+    }
+
     emu_frametime_label->setText(tr("Frame: %1 ms").arg(results.frametime * 1000.0, 0, 'f', 2));
 
     res_scale_label->setVisible(true);
     emu_speed_label->setVisible(!Settings::values.use_multi_core.GetValue());
     game_fps_label->setVisible(true);
+    display_fps_label->setVisible(!display_fps_label->text().isEmpty());
     emu_frametime_label->setVisible(true);
     firmware_label->setVisible(false);
 }
@@ -4746,6 +5105,22 @@ void MainWindow::UpdateAAText() {
                                   : aa_text.toUpper());
 }
 
+void MainWindow::UpdateFrameGenText() {
+    const bool enabled = Settings::values.frame_gen.GetValue();
+    frame_gen_status_button->setChecked(enabled);
+    if (!enabled) {
+        frame_gen_status_button->setText(tr("NO FG"));
+        return;
+    }
+    const QString name = Settings::values.frame_gen_type.GetValue() == Settings::FrameGenType::Lsfg
+                             ? tr("LSFG")
+                             : tr("FG");
+    const u32 target_rate = Settings::values.frame_gen_target_rate.GetValue();
+    frame_gen_status_button->setText(
+        target_rate != 0 ? tr("%1 %2 FPS").arg(name).arg(target_rate)
+                         : tr("%1 %2X").arg(name).arg(Settings::FrameGenMultiplier()));
+}
+
 #ifdef HAS_RESHADE
 void MainWindow::UpdatePostShaderText() {
     const bool enabled = Settings::values.post_shader_enabled.GetValue();
@@ -4779,6 +5154,7 @@ void MainWindow::UpdateVolumeUI() {
 }
 
 void MainWindow::UpdateStatusButtons() {
+    UpdateFrameGenButton();
     renderer_status_button->setChecked(Settings::values.renderer_backend.GetValue() ==
                                        Settings::RendererBackend::Vulkan);
     UpdateAPIText();
@@ -4786,6 +5162,7 @@ void MainWindow::UpdateStatusButtons() {
     UpdateDockedButton();
     UpdateFilterText();
     UpdateAAText();
+    UpdateFrameGenText();
     UpdateVolumeUI();
 }
 
@@ -4899,7 +5276,7 @@ void MainWindow::OnCheckGraphicsBackend() {
         UISettings::values.gui_force_x11.SetValue(true);
         GraphicsBackend::SetForceX11(true);
         QMessageBox::information(this, tr("Restart Required"),
-                                 tr("Restart Eglantine to apply the X11 backend."));
+                                 tr("Restart Hortensia to apply the X11 backend."));
     }
 }
 #endif
@@ -5018,8 +5395,8 @@ bool MainWindow::ConfirmClose() {
         UISettings::values.confirm_before_stopping.GetValue() == ConfirmStop::Ask_Based_On_Game)
         return true;
 
-    const auto text = tr("Are you sure you want to close Eglantine?");
-    return question(this, tr("Eglantine"), text);
+    const auto text = tr("Are you sure you want to close Hortensia?");
+    return question(this, tr("Hortensia"), text);
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
@@ -5125,7 +5502,7 @@ bool MainWindow::ConfirmChangeGame() {
 
     // Use custom question to link controller navigation
     return question(
-        this, tr("Eglantine"),
+        this, tr("Hortensia"),
         tr("Are you sure you want to stop the emulation? Any unsaved progress will be lost."),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
 }
@@ -5134,10 +5511,10 @@ bool MainWindow::ConfirmForceLockedExit() {
     if (QtCommon::emu_thread == nullptr)
         return true;
 
-    const auto text = tr("The currently running application has requested Eglantine to not exit.\n\n"
+    const auto text = tr("The currently running application has requested Hortensia to not exit.\n\n"
                          "Would you like to bypass this and exit anyway?");
 
-    return question(this, tr("Eglantine"), text);
+    return question(this, tr("Hortensia"), text);
 }
 
 void MainWindow::RequestGameExit() {

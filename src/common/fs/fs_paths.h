@@ -8,7 +8,7 @@
 
 // yuzu data directories
 
-#define EDEN_DIR "eden"
+#define EDEN_DIR "hortensia"
 #define PORTABLE_DIR "user"
 
 // Sub-directories contained within a yuzu data directory
@@ -37,9 +37,13 @@
 #define SUDACHI_DIR "sudachi"
 #define YUZU_DIR "yuzu"
 #define SUYU_DIR "suyu"
+#define LICHII_DIR "lichii"
+#define EDEN_LEGACY_DIR "eden"
+#define BOUQUET_DIR "bouquet"
+#define EGLANTINE_DIR "eglantine"
 #define RYUJINX_DIR "Ryujinx"
 
 // yuzu-specific files
-#define LOG_FILE "eden_log.txt"
+#define LOG_FILE "hortensia_log.txt"
 #define LOSSLESS_DLL_FILE "Lossless.dll"
 #define LOSSLESS_CACHE_FILE "lsfg_spirv.cache"
