@@ -1698,6 +1698,7 @@ public:
     }
 
     ~INx2Vi2Session() override {
+        m_fps_logger.PrintSessionSummary();
         // The vsync callback may be running on the HostTiming thread: empty its event list under
         // its lock first (it holds the state, not this session), then close the events.
         {
@@ -1815,6 +1816,104 @@ private:
         u32 presents{};
         std::chrono::steady_clock::time_point last_present{};
     } m_stats{};
+    struct FpsLogger {
+        static bool Enabled() {
+            static const bool enabled = [] {
+                const char* val = std::getenv("EDEN_FPS_LOG");
+                return val == nullptr || val[0] != '0';
+            }();
+            return enabled;
+        }
+
+        std::chrono::steady_clock::time_point session_start{};
+        std::chrono::steady_clock::time_point last_report{};
+        std::chrono::steady_clock::time_point last_present{};
+        std::vector<double> window_frametimes;
+        std::vector<double> session_frametimes;
+        size_t presents_count = 0;
+
+        void OnPresent(std::chrono::steady_clock::time_point now) {
+            if (!Enabled()) {
+                return;
+            }
+            ++presents_count;
+            if (session_start == std::chrono::steady_clock::time_point{}) {
+                session_start = now;
+                last_report = now;
+                last_present = now;
+                return;
+            }
+            const double dt_ms =
+                std::chrono::duration<double, std::milli>(now - last_present).count();
+            last_present = now;
+            if (dt_ms > 0.0 && dt_ms < 1000.0) {
+                window_frametimes.push_back(dt_ms);
+                session_frametimes.push_back(dt_ms);
+            }
+            const auto elapsed =
+                std::chrono::duration_cast<std::chrono::seconds>(now - last_report).count();
+            if (elapsed >= 5 && !window_frametimes.empty()) {
+                PrintWindow();
+                window_frametimes.clear();
+                last_report = now;
+            }
+        }
+
+        void PrintWindow() {
+            if (window_frametimes.empty()) {
+                return;
+            }
+            double sum = 0.0;
+            double min_dt = 1e9;
+            double max_dt = 0.0;
+            for (double dt : window_frametimes) {
+                sum += dt;
+                min_dt = (std::min)(min_dt, dt);
+                max_dt = (std::max)(max_dt, dt);
+            }
+            const double avg_frametime = sum / static_cast<double>(window_frametimes.size());
+            const double avg_fps = avg_frametime > 0.0 ? 1000.0 / avg_frametime : 0.0;
+            const double min_fps = max_dt > 0.0 ? 1000.0 / max_dt : 0.0;
+            const double max_fps = min_dt > 0.0 ? 1000.0 / min_dt : 0.0;
+
+            std::vector<double> sorted = window_frametimes;
+            std::sort(sorted.begin(), sorted.end());
+            const size_t p99_idx = static_cast<size_t>(sorted.size() * 0.99);
+            const double p99_dt = sorted[(std::min)(p99_idx, sorted.size() - 1)];
+            const double low_1pct = p99_dt > 0.0 ? 1000.0 / p99_dt : 0.0;
+
+            LOG_INFO(Service, "FPS avg={:.1f} min={:.1f} max={:.1f} 1%low={:.1f} frametime_avg={:.2f}ms",
+                     avg_fps, min_fps, max_fps, low_1pct, avg_frametime);
+        }
+
+        void PrintSessionSummary() {
+            if (!Enabled() || session_frametimes.empty()) {
+                return;
+            }
+            double sum = 0.0;
+            double min_dt = 1e9;
+            double max_dt = 0.0;
+            for (double dt : session_frametimes) {
+                sum += dt;
+                min_dt = (std::min)(min_dt, dt);
+                max_dt = (std::max)(max_dt, dt);
+            }
+            const double avg_frametime = sum / static_cast<double>(session_frametimes.size());
+            const double avg_fps = avg_frametime > 0.0 ? 1000.0 / avg_frametime : 0.0;
+            const double min_fps = max_dt > 0.0 ? 1000.0 / max_dt : 0.0;
+            const double max_fps = min_dt > 0.0 ? 1000.0 / min_dt : 0.0;
+
+            std::vector<double> sorted = session_frametimes;
+            std::sort(sorted.begin(), sorted.end());
+            const size_t p99_idx = static_cast<size_t>(sorted.size() * 0.99);
+            const double p99_dt = sorted[(std::min)(p99_idx, sorted.size() - 1)];
+            const double low_1pct = p99_dt > 0.0 ? 1000.0 / p99_dt : 0.0;
+
+            LOG_INFO(Service,
+                     "FPS SESSION SUMMARY: presents={} avg={:.1f} min={:.1f} max={:.1f} 1%low={:.1f}",
+                     presents_count, avg_fps, min_fps, max_fps, low_1pct);
+        }
+    } m_fps_logger{};
     u32 m_previous_fence_id{~0U}; // none yet (WaitForFrame ignores ids >= 192)
     u32 m_previous_fence_value{};
 
@@ -1849,6 +1948,17 @@ private:
         if (forced_interval != 0) {
             swap_interval = forced_interval;
         }
+        // Hortensia: Mario Kart World requests interval 2 (30 fps) when dynamic fps is off,
+        // locking the frame rate to 30 fps even when the GPU can easily render 45-60 fps.
+        // Uncap to interval 1 by default for Mario Kart World unless EDEN_NX2_MKW_SWAP_INTERVAL is set.
+        const bool is_mkw = process != nullptr && process->GetProgramId() == Settings::MarioKartWorldProgramId;
+        if (is_mkw && forced_interval == 0) {
+            static const u32 mkw_interval = [] {
+                const char* value = std::getenv("EDEN_NX2_MKW_SWAP_INTERVAL");
+                return value ? static_cast<u32>(std::strtoul(value, nullptr, 10)) : 1U;
+            }();
+            swap_interval = mkw_interval;
+        }
         const u32 refresh_rate = (timing & 0xffff) >= 30 && (timing & 0xffff) <= 240 ? timing & 0xffff : 60;
         if (timing != std::exchange(m_swap_word, timing)) {
             LOG_INFO(Service, "nx2:vi2 present #{} swap interval {} at {} Hz (word 12 = {:#x})",
@@ -1869,6 +1979,7 @@ private:
                 kernel, kernel.HardwareTimer().GetTick() + wait.count() + 2));
         }
         m_next_vblank += interval;
+        m_fps_logger.OnPresent(now);
     }
 
     /// Waits until the fence is reached. With `unless_gpu_waits`, gives up after a few ms once a

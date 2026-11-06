@@ -46,3 +46,10 @@ EDEN_NX2_FENCE_BATCH=1
 #EDEN_NX2_ASTC_POOL_V2=0
 # Only reuse an ASTC decode image of exactly the size asked for (=0), not a larger one.
 #EDEN_NX2_ASTC_POOL_FIT=0
+
+# Log FPS stats (average, min, max, 1% low) every 5 seconds and a session summary on close.
+# Enabled by default. Set to 0 to disable.
+#EDEN_FPS_LOG=0
+
+# Force Mario Kart World swap interval (default is 1 to prevent 30 fps cap when dynamic FPS is off).
+#EDEN_NX2_MKW_SWAP_INTERVAL=2
