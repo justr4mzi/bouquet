@@ -75,9 +75,14 @@ There is **one file per system**:
    Run anyway** (Bouquet isn't signed).
    - Linux: `chmod +x Bouquet-Linux.AppImage`, then run it.
    - Mac: open the zip, drag Bouquet to Applications, right-click it → **Open** the first time.
-2. At the first start, answer **Yes** to **optimized settings** (see below).
-3. **Keys and firmware.** Bouquet keeps its own data folder, so it never touches the config of
-   your other emulators:
+2. **First start.** Bouquet does a few things for you:
+   - If you used **Lichii** or **Eden/Eglantine** before, it offers to **import** your keys,
+     firmware, saves, settings and **shader caches** (no stutter in games you already played).
+   - It picks your **dedicated graphics card** over the processor's integrated graphics.
+   - It asks about **optimized settings**: answer **Yes** (see below).
+   - It switches to the **Bouquet theme** (Emulation → Configure → General → UI to change it).
+3. **Keys and firmware** (skip this if you imported them). Bouquet keeps its own data folder, so
+   it never touches the config of your other emulators:
    - Windows: `%APPDATA%\bouquet` (type it in the Explorer address bar)
    - Linux: `~/.local/share/bouquet` and `~/.config/bouquet`
    - macOS: `~/Library/Application Support/bouquet`
@@ -86,8 +91,18 @@ There is **one file per system**:
    did for Eglantine, Lichii or Eden.
    **Portable mode:** create an empty folder named `user` next to `bouquet.exe` and Bouquet keeps
    everything in it instead.
-4. **Add your games folder** (double-click the game list) and launch a game. The first launch of
-   each game builds its shaders: it stutters for a few minutes, then gets smooth.
+4. **Add your games folder** (double-click the game list). Each game shows **Switch 1** or
+   **Switch 2** under its name. The first launch of a game builds its shaders: it stutters for a
+   few minutes, then gets smooth.
+
+### Using someone else's shader cache
+
+Bouquet reads Lichii's cache files (`vulkan.fork-v53.bin`). Put a game's cache folder (named after
+its program ID, for example `0400486024dec000` for Ocarina of Time) in
+`%APPDATA%\bouquet\shader\` on Windows. Only the `vulkan.fork-v53.bin` and
+`vulkan_used.fork-v53.bin` files matter; files from other builds (`-frizti.fork-v52`, …) are
+ignored. The guest shader list works on any graphics card; the driver's own cache is rebuilt for
+yours.
 
 ## Optimized settings per game
 
@@ -190,11 +205,14 @@ The full list with authors is in the commit history. Here is what each source br
 
 ### Base: [Lichii](https://github.com/zortos293/Lichii) `nx2` (zortos293 and contributors)
 
-Everything Lichii had on 6 November 2026, including:
+Everything Lichii had on 6 November 2026 (17:00), including:
 
 - Ocarina of Time: boot, rendering, the built-in **Max Resolution** and **Dynamic FPS** patches,
   door fix, upscaler gathers, white flashes fix, the last compute shader forms.
 - The **AMD black-scene fix** (#127, also in Selevet's and Orchid's AMD fixes), **MWAITX/UMWAIT** wait fixes for Ryzen and Intel.
+- The **AMD fix of 6 November** (#273): depth-compare textures typed as float, atomic retries
+  that use the value the compare-and-swap returned, and two Ocarina compute shaders that took
+  6-18 minutes to build on AMD's Windows driver built unoptimized.
 - **"perf9"**: 17 GPU-thread optimizations promoted by default (cheaper method dispatch,
   batched constant-buffer writes, page-run cache, SPIR-V emission on pipeline workers, smarter
   waits before MME DMA reads, read-back batching: Ocarina's Finishes went from 1184 to 70 a
@@ -222,7 +240,9 @@ Everything Lichii had on 6 November 2026, including:
 | [Eglantine-DKB](https://github.com/monteger8/Eglantine-DKB) (monteger8, adamd), Orchid | Unchanged vertex buffers and repeated written ranges skipped; empty draws skipped; DK Bananza macro DMA reads of untouched pages skip the full drain | `DRAW_TUNING`, `DRAW_EMPTY`, `DMA_DRAIN` |
 | ZendNevs (via Eglantine-DKB) | Donkey Kong Bananza dynamic FPS; frame generation toggle in game (Ctrl+G) | `PACE_ONE` |
 | Lichii experiments (zortos293) | "K4" GPU time divisor; parallel render pass recording prototype; Ocarina visual workaround | `GPU_TIME_DIV`, `PARALLEL_RECORD`, `OOT_VISUAL_WORKAROUND` |
-| Bouquet | Optimized settings per game with GPU vendor detection; MKW/DK title checks through the present's process; DMA drain skip limited to DK Bananza (Ocarina's fog reads query results this way); conflicts resolved against Lichii's newer code | — |
+| [chuppatricky's AMD test builds](https://github.com/chuppatricky/Lichii) (chuppatricky, Matt Artist, sharkiix), v13 | **AMD fixes**: colour targets a fragment shader never writes are masked (dark outlines around Ocarina's castle on AMD); NaN-defined min/max/clamp; misaligned 64/128-bit and vector memory accesses split into words; occlusion query resolves wait once on AMD; compute writes ordered before later draws; sampler comparison dropped for non-depth samples; blend state rebuilt without dynamic blend; four Ocarina fragment shaders and opt-in graphics pipelines built unoptimized on old AMD drivers; query reports written once the GPU produced them; GPU breadcrumbs that name the work running when the GPU hangs, and the memory budget in the log; null texture for handles past the pool; video frames invalidated with GPU writes kept; more shader register fixes; **display frame rate in the status bar** and a **frame generation button** | `EDEN_NX2_AMD_SAFE_COMPILE_GRAPHICS` |
+| [Frizti](https://github.com/Frizti/Lichii) | Command list fetch wait skip (experiment, off) | `EDEN_NX2_LIST_WAIT_SKIP` |
+| Bouquet | Optimized settings per game with GPU vendor detection; import from Lichii and Eden/Eglantine at the first start (shader caches kept); dedicated GPU picked at the first start; Bouquet theme; Switch 1 / Switch 2 label under each game; Bilinear scaling by default; built-in update check against Bouquet's releases; Lichii's cache format kept so shared caches load; MKW/DK title checks through the present's process; DMA drain skip limited to DK Bananza (Ocarina's fog reads query results this way); conflicts resolved against Lichii's newer code | — |
 
 ## Every switch Bouquet adds
 
@@ -254,6 +274,9 @@ section. If something looks wrong after an update, turn the switches off one at 
 | `EDEN_NX2_SKIP_COMPUTE` | empty | `=hash,hash` |
 | `EDEN_NX2_GPU_TIME_DIV` | 1 | `=4` (K4 test) |
 | `EDEN_NX2_PARALLEL_RECORD` | off | `=1` prototype |
+| `EDEN_NX2_AMD_SAFE_COMPILE` | automatic (AMD Windows drivers older than 2.0.388) | `=1` on any AMD Windows driver, `=0` never |
+| `EDEN_NX2_AMD_SAFE_COMPILE_GRAPHICS` | off | `=1` builds every graphics pipeline unoptimized on AMD's Windows driver (crash near the Deku Tree) |
+| `EDEN_NX2_LIST_WAIT_SKIP` | off | `=1` experiment |
 
 ## What was left out, and why
 
@@ -271,6 +294,12 @@ Being honest about the gaps helps when you compare Bouquet with another build.
   ASTC transcode**: they rewrite code Lichii changed since; left for a later version.
 - **Selevet's thread pinning** (opt-in only) and **inline CNTPCT** (needs a modified dynarmic).
 - **Pokopia FPS-mod settings (120-360 Hz)** from notsapinho: a larger settings change, planned.
+- **Frizti's newest split-thread work** (acquire precheck, macro reads served from queued constant
+  buffer uploads): it overlaps the Selevet acquire optimizations already in Bouquet and conflicts
+  with them; left for a later version. Most of Frizti's earlier work is in Lichii (#194).
+- **chuppatricky's Ocarina fog modes** (`EDEN_NX2_OOT_FOG`): Bouquet keeps Selevet's tunable fog,
+  exposure and bloom instead. His scheduler change for the split's submits conflicts with
+  Lichii's newer code.
 
 ## Reporting a problem
 

@@ -91,3 +91,12 @@ EDEN_NX2_OOT_BLOOM_EXP_SCALE=1.2
 #EDEN_NX2_GPU_TIME_DIV=4
 # Lichii (zortos293) prototype: record render passes in parallel
 #EDEN_NX2_PARALLEL_RECORD=1
+
+# --- AMD (chuppatricky / Matt Artist), automatic ---
+# Ocarina of Time shaders that crash or take minutes to build on AMD's Windows driver are built
+# unoptimized on drivers older than 2.0.388. =1 does it on any AMD driver, =0 never.
+#EDEN_NX2_AMD_SAFE_COMPILE=1
+# Every graphics pipeline unoptimized on AMD's Windows driver (crash near the Deku Tree)
+#EDEN_NX2_AMD_SAFE_COMPILE_GRAPHICS=1
+# Frizti: no wait before reading command lists on pages the GPU never wrote (experiment)
+#EDEN_NX2_LIST_WAIT_SKIP=1
