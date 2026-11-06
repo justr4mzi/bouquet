@@ -44,3 +44,9 @@ EDEN_NX2_AMD_PARALLEL_PIPELINES=1
 
 # Accurate FPS logging every 5s and session summary at shutdown
 EDEN_FPS_LOG=1
+
+# Pin split GPU front/back threads to dedicated physical cores (cores 1 and 2 on 6-core Ryzen 5 5600)
+EDEN_NX2_PIN_THREADS=1
+
+# Spin 50 microseconds before parking Switch 2 guest CPU threads on short waits
+EDEN_NX2_IDLE_SPIN_US=50
