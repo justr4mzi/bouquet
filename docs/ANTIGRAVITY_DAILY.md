@@ -184,3 +184,17 @@ tester. Fais-les à partir de `git log <tag précédent>..HEAD`, en phrases simp
 (avec un court résumé en français si tu veux). Mets-les dans la release GitHub
 (`gh release edit <tag> --notes-file …`) et dans le message du tag annoté. Si le workflow
 génère un texte automatique, complète-le au lieu de le laisser vide.
+
+## 12. Mode TV (Docked) par défaut + blocage 30 fps de MKW
+
+- Ramzi veut le **mode TV (Docked) par défaut** pour les jeux, preset MKW compris : quasiment le
+  même fps qu'en portable chez lui, et beaucoup plus beau. Change `use_docked_mode` dans les
+  presets (`game_presets.h`, `SetMarioKartWorldRecommendedSettings` met Handheld) et la valeur
+  par défaut. Garde portable seulement là où un fork l'a mesuré plus rapide, et note-le.
+- Même avec les bons réglages, Hortensia restait vers 30 fps sur MKW. Piste trouvée :
+  `PaceToVblank` dans `src/core/hle/service/nx2_gsv.h` respecte l'intervalle 2 (0x2003c,
+  donc 30 fps) que MKW demande, une fois stable 120 presents (logique Orchid/Selevet).
+  SmileyTatsu (~40 fps) ne bride probablement pas comme ça : vérifie dans son code. Ramzi
+  teste `EDEN_NX2_SWAP_INTERVAL=1` (dans `%APPDATA%\hortensia\nx2_switches.txt`) : si ça
+  débloque sans que le jeu tourne trop vite, mets intervalle 1 par défaut pour MKW quand le
+  patch dynamic FPS est off, derrière un switch.
