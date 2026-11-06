@@ -1168,6 +1168,37 @@ void GraphicsPipeline::MakePipeline(VkRenderPass render_pass) {
     if (uses_descriptor_buffer) {
         flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
     }
+    // EDEN_NX2_AMD_SAFE_COMPILE_GRAPHICS=1: on AMD's proprietary driver, graphics pipelines are
+    // built without driver optimizations.
+    static const bool safe_graphics = [] {
+        const char* const value = std::getenv("EDEN_NX2_AMD_SAFE_COMPILE_GRAPHICS");
+        return value != nullptr && value[0] == '1';
+    }();
+    // Fragment and graphics shaders that crash or stall for seconds on AMD proprietary drivers
+    // (crashing: 6c85c9f06e1d689b, 3d513889e2913d1c, 3c2193d0166610b3, 4e54644c03577013;
+    // in-game GPU thread stalls 1.2-1.7s: c62f1efe14cbfb7a, 8a0bd7fa60387348, cf86ddafdaccdb74).
+    static constexpr std::array<u64, 7> CRASHING_OR_STALLING_GRAPHICS{
+        0x6c85c9f06e1d689bULL, 0x3d513889e2913d1cULL, 0x3c2193d0166610b3ULL, 0x4e54644c03577013ULL,
+        0xc62f1efe14cbfb7aULL, 0x8a0bd7fa60387348ULL, 0xcf86ddafdaccdb74ULL,
+    };
+    static const int safe_mode = [] {
+        const char* const value = std::getenv("EDEN_NX2_AMD_SAFE_COMPILE");
+        return value == nullptr || value[0] == '\0' ? -1 : (value[0] == '0' ? 0 : 1);
+    }();
+    const bool amd_proprietary = device.GetDriverID() == VK_DRIVER_ID_AMD_PROPRIETARY;
+    bool is_stalling_shader = false;
+    if (amd_proprietary && safe_mode != 0) {
+        for (const u64 hash : key.unique_hashes) {
+            if (hash != 0 && std::ranges::find(CRASHING_OR_STALLING_GRAPHICS, hash) != CRASHING_OR_STALLING_GRAPHICS.end()) {
+                is_stalling_shader = true;
+                break;
+            }
+        }
+    }
+    const bool unoptimized = amd_proprietary && (safe_graphics || is_stalling_shader);
+    if (unoptimized) {
+        flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
+    }
 
     pipeline = device.GetLogical().CreateGraphicsPipeline({
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
