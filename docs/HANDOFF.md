@@ -66,6 +66,7 @@ session.** Keep it factual: what was checked, what was integrated, what failed, 
 | Eglantine-DKB | github.com/monteger8/Eglantine-DKB | `dkb-terrain` | DK Bananza |
 | KektJ | github.com/KektJ/Eglantine | `perf/crowded-areas` | Fire Emblem, crowded areas |
 | Wael3rd | github.com/Wael3rd/Eglantine-MKW | `mkw-eglantine` | MKW |
+| ZendNevs | github.com/ZendNevs/Eglantine-ZendNevs | `main` | DK Bananza, terrain & graphics fixes |
 | eden-fefw | github.com/xDarkWindx/eden-fefw | `main` | Ideas only |
 | Fork guide | github.com/riyadhHDA/wichforks | — | Comparison of forks |
 

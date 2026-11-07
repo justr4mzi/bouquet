@@ -58,6 +58,7 @@ jobs:
           Eglantine-DKB https://github.com/monteger8/Eglantine-DKB.git dkb-terrain
           KektJ https://github.com/KektJ/Eglantine.git perf/crowded-areas
           Wael3rd https://github.com/Wael3rd/Eglantine-MKW.git mkw-eglantine
+          ZendNevs https://github.com/ZendNevs/Eglantine-ZendNevs.git main
           eden-fefw https://github.com/xDarkWindx/eden-fefw.git main
           wichforks https://github.com/riyadhHDA/wichforks.git main
           EOF

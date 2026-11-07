@@ -83,3 +83,13 @@ EDEN_NX2_FENCE_BATCH=1
 
 # Report Variable Refresh Rate (VRR) display capability to Switch 2 SDKs (disabled by default for Mario Kart World; set to 1 to force on or 0 to disable).
 #EDEN_NX2_REPORT_VRR=0
+
+# Donkey Kong Bananza: Lock to solid 30 FPS swap interval (interval 2) to prevent uneven 1/2/3 interval pacing spikes (default off; set to 1 to enable).
+#EDEN_NX2_DK_30FPS=1
+
+# Mario Kart World: run cup intro movies at unpaced full speed (default on; set to 0 to disable).
+#EDEN_MKW_MOVIE_UNPACED=0
+
+# AMD proprietary driver: build crashing/stalling shaders without driver optimizations (default on; set to 0 to disable).
+#EDEN_NX2_AMD_SAFE_COMPILE=0
+#EDEN_NX2_AMD_SAFE_COMPILE_GRAPHICS=1
