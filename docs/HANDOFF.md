@@ -459,3 +459,40 @@ Les remotes `pokedinner` (`https://git.eden-emu.dev/Franseven/PokeDinner-a-Eglan
 
 ### 9. Harmonisation et synchronisation GpuSplit (07/11/2026)
 - **Revert #215 Query DMA (`0ee8e95d5f`)** : Alignement avec la décision upstream Lichii (`29f05782d6`). Le port de #215 (`871755381d`) référençait `split.Run` et `DrainSite` qui n'appartiennent pas au modèle `GpuSplit` de la base SmileyTatsu build-20 et causaient un défaut de compilation/liaison. Le mécanisme standard de vidage via `FlushRegion` est conservé sans risque de désynchronisation de thread.
+
+### 10. Intégrations majeures, restauration #215 et correctifs graphiques (07/11/2026)
+- **Publication v0.2.0 officielle** : La release publique v0.2.0 a été générée avec succès sur le commit validé de `main` (run GitHub Actions 42369969749, les 6 jobs compilés et verts). Issue #1 fermée avec lien officiel, issue #2 mise à jour (lancement OOT résolu, crash en cours de stabilisation).
+- **Restauration complète de #215 (`570c8dc1ee`)** : Portage complet des prérequis architecturaux depuis Lichii/WeslieDE :
+  - `DrainSite` et méthode `GpuSplit::Run(func, DrainSite)` dans `gpu_split.h/.cpp`.
+  - Prédicat `HasPendingQueries` dans `rasterizer_interface.h` et `vk_rasterizer.h/.cpp`.
+  - Implémentation de `FlushQueryResults` dans `vk_rasterizer.cpp` et `SemiFlushRegion` dans `query_cache_base.h`.
+  - Restauration de `src/video_core/query_dma.h` : attente et vidage des requêtes d'occlusion avant lecture DMA de macro (`DrainSite::MacroDmaFlush`), résolvant les flashes blancs et la surexposition dans Ocarina of Time.
+- **Portage PRs Lichii build-94 & Upstream** :
+  - `#301` (`0cfbb481b3`) : Ajout de la variable d'environnement de diagnostic `EDEN_NX2_PIPELINE_BUILD_TRACE` pour identifier les shaders provoquant un crash driver.
+  - `#329` (`019531fc84`) : Exécution des warp ops graphiques à la taille native du guest (`vk_graphics_pipeline.cpp`), corrigeant la végétation de Kokiri Forest.
+  - `#353` (`619035cd5d`) : Masquage des composantes de Render Target que le fragment shader n'écrit pas (`color_output_mask`, `writes_storage`).
+  - `#310` (`5ea23d85f9`) : Dynarmic attend le commit d'espace de code au lieu d'émettre au-delà (`block_of_code.cpp`).
+  - `#404` (`639eb0b0fe`) : Préservation de la croissance amortie des écritures d'état dans `dma_pusher.cpp`.
+  - `#311` (`2a69bc4891`) : Alignement de la vérification clear-skip sur la couverture géométrique réelle du clear (`texture_cache.h`).
+  - `#330` (`f7af6ed5a6`) : Rejet immédiat d'échec d'allocation mémoire invité avant le boot du kernel (`host_memory.cpp`, `core.cpp`).
+  - `#418` (`db7e9d2331`) : Paramètre expérimental `pin_gpu_threads` pour épingler les threads split GPU à leurs propres cœurs (`core_pinning.cpp/.h`).
+  - `#214` (`a632a225ab`) : Outils de reconstruction de pipeline cache et hints de session (`tools/nx2/`, `tools/shader-sweep/`).
+  - `#346` (`ace89fe503`) : Collecte des contrôles de dénormaux pour FPMin32 et FPMax32 dans SPIR-V (`collect_shader_info_pass.cpp`).
+  - `#444` (`378548a71c`) : Libération des gathered buffers multi-range lorsque leurs sources sont supprimées (`vk_multi_range_buffer.cpp/.h`, `vk_buffer_cache.cpp`).
+  - `#140` / `#429` (`a3835e4cf3`, `68440a55c5`) : Prise en charge complète des descripteurs de stockage NVN (`UsesNvnStorageDescriptor`) et implémentation du compare-and-swap atomique 32 bits global (`GlobalAtomicCompareExchange32` et `StorageAtomicCompareExchange32`) en IR, SPIR-V, GLSL et Maxwell.
+- **Donkey Kong Bananza (DKB)** :
+  - Portage Eglantine-DKB `0799cba1f6` (`28f06b121a`) : Déport des libérations de fences du front, flushes DMA de macros et memory maps sur le thread split back via `GpuSplit::Run`, éliminant les crashs sur chunks nuls.
+  - Portage Eglantine-DKB `1b6219e82d` (`dcb47ec3cc`) : Vidage des pages de listes de commandes écrites par draw uniquement après écriture effective.
+- **Pokopia & Rendu Graphique** :
+  - Portage notsapinho `77875bb6f9` (`be340b0fee`) : Correctifs compute shaders AMD Switch 2 pour Pokopia (photos zébrées résolues, buffers cohérents `LDG.E.STRONG.GPU`).
+  - Ciel de Pokopia (`1edbdd42c9`) : Prise en charge de la variante uniform de FSEL (`0xc08`) et passage de `CACHE_VERSION` à 22 pour forcer l'invalidation automatique des anciens shaders corrompus stockés sur le disque local de l'utilisateur.
+- **Splatoon** :
+  - Tout le pipeline de lowering Ampere est désormais actif (`ISETP.EX`, `SHF.R.U64`, `SrcCopySrgbToLinear`). Prêt pour retest ; diagnostic activable via `EDEN_NX2_PIPELINE_BUILD_TRACE=1` si une anomalie d'exposition persiste.
+- **État courant et étapes suivantes** :
+  - Branche de travail : `rebase/smileytatsu` maintenue strictement isolée de `main`.
+  - À tester sur machine réelle (RX 6700 XT) sur le nouveau build :
+    1. Mario Kart World : confirmation de non-régression (~42 FPS TV).
+    2. Zelda OOT : test de stabilité au-delà des 4 minutes (bénéficie de `ISETP.EX`, `#215`, `#329` Kokiri Forest).
+    3. Donkey Kong Bananza : visibilité du terrain (Franseven) et tenue lors du cassage de blocs (DKB drain & fence backthread).
+    4. Pokopia : affichage du ciel (nouveau cache v22) et photos en jeu.
+    5. Splatoon : éclairage et rendu des scènes avec lowering Ampere complet.
