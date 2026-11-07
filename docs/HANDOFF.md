@@ -456,3 +456,6 @@ Les remotes `pokedinner` (`https://git.eden-emu.dev/Franseven/PokeDinner-a-Eglan
    - **Pacing & Pipeline Preloading (Étape 6)** :
      - Plafond de fluidité à 60 FPS max dans les menus et écrans de chargement pour Ocarina of Time (`0400486024DEC000`) et Nintendo Switch Sports (`04008E001F098000`) dans `PaceToVblank` (`nx2_gsv.h`) sans affecter le déverrouillage de Mario Kart World.
      - Maintien du préchargement intégral des pipelines pour tous les jeux Switch 2 (`PreloadAllPipelines` / `Settings::CurrentProgramIsSwitch2()`), garantissant l'absence de saccades de compilation en jeu.
+
+### 9. Harmonisation et synchronisation GpuSplit (07/11/2026)
+- **Revert #215 Query DMA (`0ee8e95d5f`)** : Alignement avec la décision upstream Lichii (`29f05782d6`). Le port de #215 (`871755381d`) référençait `split.Run` et `DrainSite` qui n'appartiennent pas au modèle `GpuSplit` de la base SmileyTatsu build-20 et causaient un défaut de compilation/liaison. Le mécanisme standard de vidage via `FlushRegion` est conservé sans risque de désynchronisation de thread.
