@@ -2716,10 +2716,12 @@ void MainWindow::OnGameListOpenFolder(u64 program_id, GameListOpenTarget target,
         } else {
             const auto file = Core::GetGameFileFromPath(QtCommon::vfs, game_path);
             const auto loader = Loader::GetLoader(*QtCommon::system, file);
-
-            FileSys::NACP nacp{};
-            loader->ReadControlData(nacp);
-            return std::make_pair(nacp.GetDefaultNormalSaveSize(), nacp.GetDeviceSaveDataSize());
+            if (loader != nullptr) {
+                FileSys::NACP nacp{};
+                loader->ReadControlData(nacp);
+                return std::make_pair(nacp.GetDefaultNormalSaveSize(), nacp.GetDeviceSaveDataSize());
+            }
+            return std::make_pair(u64{0}, u64{0});
         }
     }();
 

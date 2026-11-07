@@ -1998,12 +1998,21 @@ private:
             swap_interval = mkw_interval;
         }
         const u32 refresh_rate = (timing & 0xffff) >= 30 && (timing & 0xffff) <= 240 ? timing & 0xffff : 60;
+        // Cap menus/loading frame rate to 60 FPS max for OOT & Switch Sports without touching MKW unlock
+        constexpr u64 OcarinaOfTimeProgramId = 0x0400486024DEC000ULL;
+        constexpr u64 SwitchSportsProgramId = 0x04008E001F098000ULL;
+        const u64 current_app_id = process != nullptr ? process->GetProgramId() : 0ULL;
+        u32 effective_refresh_rate = refresh_rate;
+        if ((current_app_id == OcarinaOfTimeProgramId || current_app_id == SwitchSportsProgramId) &&
+            forced_interval == 0 && effective_refresh_rate > 60) {
+            effective_refresh_rate = 60;
+        }
         if (timing != std::exchange(m_swap_word, timing)) {
             LOG_INFO(Service, "nx2:vi2 present #{} swap interval {} at {} Hz (word 12 = {:#x})",
-                     m_presents, swap_interval, refresh_rate, timing);
+                     m_presents, swap_interval, effective_refresh_rate, timing);
         }
         const auto interval = std::chrono::nanoseconds{
-            100'000'000'000LL * swap_interval / refresh_rate / Settings::SpeedLimit()};
+            100'000'000'000LL * swap_interval / effective_refresh_rate / Settings::SpeedLimit()};
         const auto now = std::chrono::steady_clock::now();
         if (now > m_next_vblank + interval) {
             // Running slower than the swap interval: show at once and don't bank the lost time.
