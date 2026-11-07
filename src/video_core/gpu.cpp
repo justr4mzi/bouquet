@@ -13,6 +13,7 @@
 #include <utility>
 
 #include "common/assert.h"
+#include "common/logging.h"
 #include "common/settings.h"
 #include "common/settings_enums.h"
 #include "core/core.h"
@@ -41,6 +42,14 @@
 namespace Tegra {
 
 namespace {
+constexpr Settings::GpuClock EffectiveGpuClock(Settings::GpuClock clock, u64 program_id) {
+    constexpr u64 OcarinaOfTime = 0x0400486024DEC000ULL;
+    if (program_id == OcarinaOfTime && clock == Settings::GpuClock::Overclock) {
+        return Settings::GpuClock::Boost;
+    }
+    return clock;
+}
+
 constexpr u64 GpuClockMultiplier(Settings::GpuClock clock) {
     switch (clock) {
     case Settings::GpuClock::Boost:
@@ -86,6 +95,13 @@ struct GPU::Impl {
     }
 
     void InitChannel(Control::ChannelState& to_init, u64 program_id) {
+        if (program_id != 0 && program_id_for_clock.exchange(program_id) != program_id &&
+            EffectiveGpuClock(Settings::GpuClock::Overclock, program_id) !=
+                Settings::GpuClock::Overclock &&
+            Settings::values.gpu_clock.GetValue() == Settings::GpuClock::Overclock) {
+            LOG_WARNING(HW_GPU, "GPU Clocks is Overclock: this game uses Boost instead, as "
+                                "Overclock breaks its picture");
+        }
         to_init.Init(system, program_id);
         to_init.BindRasterizer(renderer->ReadRasterizer());
         renderer->ReadRasterizer()->InitializeChannel(to_init);
@@ -174,7 +190,7 @@ struct GPU::Impl {
 
     [[nodiscard]] u64 GetTicks() const {
         const u64 gpu_tick = system.CoreTiming().GetGPUTicks();
-        return gpu_tick / GpuClockMultiplier(Settings::values.gpu_clock.GetValue());
+        return gpu_tick / GpuClockMultiplier(EffectiveGpuClock(Settings::values.gpu_clock.GetValue(), program_id_for_clock.load(std::memory_order_relaxed)));
     }
 
     void RendererFrameEndNotify() {
@@ -368,6 +384,7 @@ struct GPU::Impl {
     /// is almost always empty.
     std::atomic<u32> pending_sync_requests{};
     std::atomic<u64> current_sync_fence{};
+    std::atomic<u64> program_id_for_clock{};
     u64 last_sync_fence{};
     std::mutex sync_request_mutex;
     std::condition_variable sync_request_cv;
