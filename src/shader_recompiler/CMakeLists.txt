@@ -59,7 +59,12 @@ add_library(shader_recompiler STATIC
     frontend/ir/type.h
     frontend/ir/value.cpp
     frontend/ir/value.h
+    frontend/ampere/geometry_exit.h
+    frontend/ampere/instruction.h
     frontend/ampere/lower_to_maxwell.h
+    frontend/ampere/program_capture.h
+    frontend/ampere/register_pressure.h
+    frontend/ampere/trap_guards.h
     frontend/ampere/program_override.h
     frontend/ampere/program_address_map.h
     frontend/maxwell/control_flow.cpp
