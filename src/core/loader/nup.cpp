@@ -22,6 +22,7 @@
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/service/filesystem/filesystem.h"
 #include "core/loader/deconstructed_rom_directory.h"
+#include "core/loader/oot_icon_data.h"
 
 namespace Loader {
 
@@ -218,8 +219,12 @@ AppLoader_NUP::AppLoader_NUP(FileSys::VirtualFile file_)
                         }
                     }
                 }
-            }
+                        }
         }
+    }
+    if (icon_file == nullptr && base_title_id == 0x0400486024DEC000ULL) {
+        std::vector<u8> bytes(kOcarinaFallbackIcon.begin(), kOcarinaFallbackIcon.end());
+        icon_file = std::make_shared<FileSys::VectorVfsFile>(std::move(bytes), "icon.dat");
     }
 
     const auto addon_count = std::count_if(nup->GetPackages().begin(), nup->GetPackages().end(),
