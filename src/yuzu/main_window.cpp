@@ -1353,7 +1353,7 @@ void MainWindow::InitializeWidgets() {
     frame_gen_button->setToolTip(tr("Turn frame generation on or off, even during a game"));
     connect(frame_gen_button, &QPushButton::clicked, this, &MainWindow::OnToggleFrameGen);
     UpdateFrameGenButton();
-    statusBar()->insertPermanentWidget(0, frame_gen_button);
+    frame_gen_button->hide();
 
     // Setup Renderer API button
     renderer_status_button = new QPushButton();
