@@ -5040,23 +5040,29 @@ void MainWindow::UpdateStatusBar() {
     game_fps_label->setText(fpsText);
 
     // Frames sent to the display per second, over at least a second (the bar updates twice a second).
-    const u64 display_frames = static_cast<u64>(QtCommon::system->GPU().Renderer().GetCurrentFrame());
-    const auto now = std::chrono::steady_clock::now();
-    if (display_frames_time == std::chrono::steady_clock::time_point{} ||
-        display_frames < display_frames_seen) {
+    // Only shown when frame generation is enabled.
+    if (Settings::values.frame_gen.GetValue()) {
+        const u64 display_frames = QtCommon::system->GPU().Renderer().PresentedFrameCount();
+        const auto now = std::chrono::steady_clock::now();
+        if (display_frames_time == std::chrono::steady_clock::time_point{} ||
+            display_frames < display_frames_seen) {
+            display_fps_label->clear();
+            display_frames_seen = display_frames;
+            display_frames_time = now;
+        } else if (const double seconds =
+                       std::chrono::duration<double>(now - display_frames_time).count();
+                   seconds >= 1.0) {
+            display_fps_label->setText(
+                tr("Display: %1 FPS")
+                    .arg(std::round(static_cast<double>(display_frames - display_frames_seen) /
+                                    seconds),
+                         0, 'f', 0));
+            display_frames_seen = display_frames;
+            display_frames_time = now;
+        }
+    } else {
         display_fps_label->clear();
-        display_frames_seen = display_frames;
-        display_frames_time = now;
-    } else if (const double seconds =
-                   std::chrono::duration<double>(now - display_frames_time).count();
-               seconds >= 1.0) {
-        display_fps_label->setText(
-            tr("Display: %1 FPS")
-                .arg(std::round(static_cast<double>(display_frames - display_frames_seen) /
-                                seconds),
-                     0, 'f', 0));
-        display_frames_seen = display_frames;
-        display_frames_time = now;
+        display_frames_time = {};
     }
 
     emu_frametime_label->setText(tr("Frame: %1 ms").arg(results.frametime * 1000.0, 0, 'f', 2));
@@ -5064,7 +5070,8 @@ void MainWindow::UpdateStatusBar() {
     res_scale_label->setVisible(true);
     emu_speed_label->setVisible(!Settings::values.use_multi_core.GetValue());
     game_fps_label->setVisible(true);
-    display_fps_label->setVisible(!display_fps_label->text().isEmpty());
+    display_fps_label->setVisible(Settings::values.frame_gen.GetValue() &&
+                                  !display_fps_label->text().isEmpty());
     emu_frametime_label->setVisible(true);
     firmware_label->setVisible(false);
 }
