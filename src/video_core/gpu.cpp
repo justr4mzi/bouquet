@@ -180,10 +180,10 @@ struct GPU::Impl {
             auto request = std::move(sync_requests.front());
             sync_requests.pop_front();
             pending_sync_requests.fetch_sub(1, std::memory_order_relaxed);
-            sync_request_mutex.unlock();
+            lck.unlock();
             request();
             current_sync_fence.fetch_add(1, std::memory_order_release);
-            sync_request_mutex.lock();
+            lck.lock();
             sync_request_cv.notify_all();
         }
     }
