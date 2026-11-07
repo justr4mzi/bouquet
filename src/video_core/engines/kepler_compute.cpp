@@ -795,6 +795,7 @@ VideoCore::GameDlssReason KeplerCompute::GameDlssBlocker() const {
 }
 
 bool KeplerCompute::EmulatesNativeTensorPrograms() const {
+    if (Settings::GetCurrentProgramID() != 0x0400486024DEC000ULL && !dlss_chain.active) return true;
     return dlss_chain.active && dlss_chain.failure == VideoCore::GameDlssReason::None &&
            GameDlssBlocker() == VideoCore::GameDlssReason::None;
 }
