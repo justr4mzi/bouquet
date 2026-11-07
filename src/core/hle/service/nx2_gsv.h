@@ -1976,7 +1976,7 @@ private:
         // the 2 or 3 vblanks it asked for kept it at 20-30 fps. Pace it to every vblank instead
         // (from ZendNevs's fork). EDEN_NX2_PACE_ONE=0 keeps the interval it asks for.
         static const char* const pace_one_env = std::getenv("EDEN_NX2_PACE_ONE");
-        if (process != nullptr && process->GetProgramId() == 0x040074A01BF12000ULL &&
+        static const bool dk_30fps_env = [] { const char* v = std::getenv("EDEN_NX2_DK_30FPS"); return v != nullptr && v[0] != '0'; }(); if (process != nullptr && process->GetProgramId() == 0x040074A01BF12000ULL && (Settings::values.dk_30fps.GetValue() || dk_30fps_env)) { swap_interval = 2; } else if (process != nullptr && process->GetProgramId() == 0x040074A01BF12000ULL &&
             Settings::values.dk_dynamic_fps.GetValue() &&
             !(pace_one_env != nullptr && pace_one_env[0] == '0')) {
             swap_interval = 1;

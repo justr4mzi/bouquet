@@ -627,6 +627,7 @@ struct Values {
     // Donkey Kong Bananza: the game times its own frames (VRR reported in loader/nso.cpp, presents
     // paced to every vblank in nx2_gsv.h), so its speed holds when the frame rate drops. From
     // ZendNevs's Eglantine fork (v2.0.5).
+    SwitchableSetting<bool> dk_30fps{linkage, false, "dk_30fps", Category::RendererAdvanced};
     SwitchableSetting<bool> dk_dynamic_fps{linkage, true, "dk_dynamic_fps",
                                            Category::RendererAdvanced};
 

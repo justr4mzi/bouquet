@@ -299,6 +299,7 @@ std::unique_ptr<TranslationMap> InitializeTranslations(QObject* parent) {
            tr("Lets the game adjust between 30 and 60 FPS using whole-frame timing to maintain "
               "normal game speed. Takes effect after restarting the game and takes precedence over "
               "the 30 FPS mode."));
+    INSERT(Settings, dk_30fps, tr("Donkey Kong Bananza: 30 FPS lock"), tr("Forces the game's frame rate controller to 30 fps, for a steady rate when 60 can't be held.\nTakes effect at the next game launch."));
     INSERT(Settings, dk_dynamic_fps, tr("Donkey Kong Bananza: dynamic FPS (experimental)"),
            tr("The game times its own frames, so its speed holds when the frame rate drops, and "
               "it is never held at 20 or 30 fps. It never runs faster than 60.\nTakes effect at "
