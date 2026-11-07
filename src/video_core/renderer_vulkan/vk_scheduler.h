@@ -67,6 +67,7 @@ public:
     bool DeferDepthStencilClear(const Framebuffer* framebuffer, const VkClearValue& value);
 
     /// Realizes any pending deferred clear before its framebuffer can be moved or freed.
+    void FlushDeferred();
     void FlushDeferredClear();
 
     /// Requests the current execution context to be able to execute operations only allowed outside

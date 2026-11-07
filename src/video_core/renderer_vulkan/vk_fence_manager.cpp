@@ -1,3 +1,4 @@
+#include "video_core/gpu_split.h"
 // SPDX-FileCopyrightText: Copyright 2020 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -60,6 +61,12 @@ bool FenceManager::IsFenceSignaled(Fence& fence) const {
 
 void FenceManager::WaitFence(Fence& fence) {
     fence->Wait();
+}
+
+void FenceManager::SubmitDeferredWork() {
+    if (VideoCommon::GpuSplit::OnBackThread()) {
+        scheduler.FlushDeferred();
+    }
 }
 
 } // namespace Vulkan

@@ -221,6 +221,10 @@ bool Scheduler::DeferDepthStencilClear(const Framebuffer* framebuffer, const VkC
     return true;
 }
 
+void Scheduler::FlushDeferred() {
+    Flush();
+}
+
 void Scheduler::FlushDeferredClear() {
     if (deferred_clear.framebuffer == nullptr) {
         return;
