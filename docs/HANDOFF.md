@@ -340,3 +340,41 @@ Les remotes `pokedinner` (`https://git.eden-emu.dev/Franseven/PokeDinner-a-Eglan
 4. **Étape 4 — Presets par jeu (`src/common/game_presets.h`) & Vérification du non-écrasement au démarrage** :
    - Vérifier que `qt-config.ini` / `Config` n'écrase pas `gpu_accuracy`, `scaling_filter`, `anti_aliasing` ni les presets par jeu d'Hortensia (`MKW`, `OOT`, `DK Bananza`).
    - Mettre `EDEN_NX2_REPORT_VRR=0` par défaut pour MKW si VRR fait baisser sous 43,4 FPS (garder le switch `EDEN_NX2_REPORT_VRR=1` disponible).
+
+
+### 10.9 Intégrations Complètes et Préparation de la Pre-Release v0.2.0-rc3 (7 novembre 2026)
+
+#### A. Diagnostic & Résolutions Appliquées sur `rebase/smileytatsu`
+
+1. **Mesure VRR sur Mario Kart World (MKW)** :
+   - Mesuré par Ramzi sur RX 6700 XT en mode TV : avec `EDEN_NX2_REPORT_VRR=1` = 38,9 FPS moyen, 1% low ~24 avec micro-retours en arrière ; avec `EDEN_NX2_REPORT_VRR=0` = 43,0 FPS, 1% low ~28,5, fluide.
+   - **Décision** : VRR désactivé par défaut pour MKW (`ee608fc399`), switch d'expérimentation maintenu via `EDEN_NX2_REPORT_VRR=1`.
+
+2. **Donkey Kong Bananza (040074A01BF12000)** :
+   - *Écran bleu/lilas à 57 FPS* : causé par le rejet de la méthode compute `0xb0` (`HMMA` 0x23c) quand `dlss_chain.active` est faux. Résolu par l'émulation HMMA par défaut (`da7f6e1565` Franseven `f5e1b2bcde`) et l'émulation tensorielle native (`1e3d62e035`).
+   - *Crash à 48-90 s après Unmapped Device ReadBlock* : causé par l'évaluation du `handle_program` sur les descripteurs d'images/buffers non mappés. Résolu en restreignant au seul `TextureDescriptor` (`c2da504133` Franseven `55367c4474`).
+   - *Crash pipeline AMD RDNA* : corrigé par le masquage des sorties génériques inutilisées en Geometry Shaders, le flag `has_broken_spirv_position_input` sur AMD Windows, la barrière PBDMA `Nx2Membar()` (op 5) et la barrière WFI (`632c2c50f3` MamamaNanana `57ffa55a8c`).
+   - *Stabilité du framerate (30 FPS)* : ajout de l'option `dk_30fps` et du switch `EDEN_NX2_DK_30FPS` (`3d712070f9` Franseven `216b5034c6`) assurant un intervalle de swap stable à 30 FPS.
+
+3. **The Legend of Zelda: Ocarina of Time (0400486024DEC000)** :
+   - *Arrêt à 17 s (Userspace PANIC 0xf001)* : comblement des commandes HLE manquantes :
+     - `IGraphicsScaleController` commande 1050 (`SetGraphicsScaleChangedNotificationEnabled`, `f7ec310697`).
+     - `nx2:vi2` commande 201 (`b4dcc22f41`).
+     - `IGeneralService` commande 101 (`b4dcc22f41`).
+     - Débridage des lectures de stockage Switch 2 (`cf37246c06`).
+   - *Gels de 4 à 19 s sur le pilote AMD* :
+     - Shaders graphiques lents (`c62f1efe14cbfb7a`, `8a0bd7fa60387348`, `cf86ddafdaccdb74`) et crashants construits sans optimisations pilote (`f8dbfea534` chuppatricky `d16f89cef6`).
+     - Shader compute `37b01132333ef8df` (12,8 s de freeze) ajouté à la liste `BuildsUnoptimized` (`72d65a4841`).
+   - *Monde noir en GPU Fast sur AMD RDNA* :
+     - Synchronisation des écritures compute avant les lectures indirectes et les draws suivants via la barrière `COMPUTE_TO_GRAPHICS` (`4f1103ab72` zortos293 `73bcdc059d`).
+     - Dégénération des accès SSBO 64-bit et 128-bit mal alignés en accès par mot de 32-bit (`cae4b71c17` zortos293 `a4e42548c4`).
+     - Gather dynamique par tap (`9046528c09` Duck912 `d2af24d8b2`, PR #433).
+   - *Allègement du thread GPU back / front (issue #403)* :
+     - `MustFlushRegion` sans lock pour les pages jamais écrites par le GPU (`6bae0db4f8` PR #413 `2b70fc5ee9`).
+     - Saut des soustractions de `RangeSet` et des resets de trackers d'usage non touchés (`2507801a1e` PR #412 `079941fc6f`).
+
+4. **Interface Utilisateur & Clarté des Tests** :
+   - Titre de fenêtre incluant le SHA court du commit (`build-XX (short_sha)`) pour identifier immédiatement le build sous test.
+   - Palette de couleurs adoucie pour les lignes alternées de la liste de jeux (`#16141b` et `#191720`, bordure `#221f2b`), et fusion de la ligne de dossier sur toutes les colonnes.
+
+---
