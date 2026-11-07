@@ -15,6 +15,7 @@
 #include <thread>
 
 #include "common/adpf.h"
+#include "common/core_pinning.h"
 #include "common/error.h"
 #include "common/logging.h"
 #include "common/assert.h"
@@ -458,6 +459,7 @@ namespace {
 // (a soft affinity the power manager respects) and background workers on the slower ones.
 // EDEN_HYBRID_CORES=0 turns this off.
 struct WindowsCpuSets {
+    std::vector<Common::LogicalProcessor> processors;
     std::vector<ULONG> performance;
     std::vector<ULONG> efficiency;
     bool hybrid = false;
@@ -489,11 +491,6 @@ const WindowsCpuSets& CpuSets() {
                  GetCurrentProcess(), 0)) {
             return result;
         }
-        struct Entry {
-            ULONG id;
-            u8 efficiency_class;
-        };
-        std::vector<Entry> entries;
         u8 best = 0;
         for (ULONG offset = 0; offset + sizeof(SYSTEM_CPU_SET_INFORMATION) <= length;) {
             const auto* info =
@@ -502,14 +499,17 @@ const WindowsCpuSets& CpuSets() {
                 break;
             }
             if (info->Type == CpuSetInformation) {
-                entries.push_back({info->CpuSet.Id, info->CpuSet.EfficiencyClass});
+                const u32 core =
+                    (static_cast<u32>(info->CpuSet.Group) << 8) | info->CpuSet.CoreIndex;
+                result.processors.push_back({static_cast<u32>(info->CpuSet.Id), core,
+                                             static_cast<u8>(info->CpuSet.EfficiencyClass)});
                 best = (std::max)(best, static_cast<u8>(info->CpuSet.EfficiencyClass));
             }
             offset += info->Size;
         }
-        for (const Entry& entry : entries) {
-            (entry.efficiency_class == best ? result.performance : result.efficiency)
-                .push_back(entry.id);
+        for (const Common::LogicalProcessor& processor : result.processors) {
+            (processor.efficiency_class == best ? result.performance : result.efficiency)
+                .push_back(processor.id);
         }
         result.hybrid = !result.efficiency.empty() && result.performance.size() >= 2;
         if (result.hybrid) {
@@ -646,57 +646,39 @@ void SetCurrentThreadToPerformanceCores() {
 
 void PinCurrentThread(PinnedRole role) {
 #ifdef _WIN32
-    // Off with EDEN_NX2_PIN_THREADS=0. On by default with 6 or more physical cores: the split's
-    // back did about 8% more draws a second at Lake Hylia (Ryzen 7 7800X3D), its worst window
-    // 29 -> 54 fps, once no SMT sibling shared its core.
-    static const char* const setting = std::getenv("EDEN_NX2_PIN_THREADS");
-    if (setting != nullptr && setting[0] == '0') {
-        return;
-    }
-    // Physical cores of processor group 0, as masks of their logical processors.
-    static const std::vector<KAFFINITY> cores = [] {
-        std::vector<KAFFINITY> result;
-        DWORD length = 0;
-        GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &length);
-        std::vector<u8> buffer(length);
-        auto* info = reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data());
-        if (!GetLogicalProcessorInformationEx(RelationProcessorCore, info, &length)) {
-            return result;
+    struct PinnedCpuSets {
+        std::vector<ULONG> front;
+        std::vector<ULONG> back;
+        std::vector<ULONG> guest;
+    };
+    static const PinnedCpuSets pinned = [] {
+        const GpuThreadPinning plan = PlanGpuThreadPinning(CpuSets().processors);
+        if (plan.front.empty()) {
+            LOG_WARNING(Common,
+                        "GPU thread pinning skipped: {} physical performance cores, needs {}",
+                        plan.performance_cores, MinCoresForGpuThreadPinning);
+            return PinnedCpuSets{};
         }
-        for (DWORD offset = 0; offset < length;) {
-            auto* entry =
-                reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data() + offset);
-            if (entry->Processor.GroupCount > 0 && entry->Processor.GroupMask[0].Group == 0) {
-                result.push_back(entry->Processor.GroupMask[0].Mask);
-            }
-            offset += entry->Size;
-        }
-        return result;
+        LOG_INFO(Common,
+                 "GPU thread pinning: front and back on a physical core each, guest cores on the "
+                 "other {} performance cores ({} logical processors)",
+                 plan.performance_cores - 2, plan.guest.size());
+        return PinnedCpuSets{{plan.front.begin(), plan.front.end()},
+                             {plan.back.begin(), plan.back.end()},
+                             {plan.guest.begin(), plan.guest.end()}};
     }();
-    // Core 0 takes most interrupts: the GPU threads get cores 1 and 2.
-    if (cores.size() < (setting != nullptr && setting[0] == '1' ? 4U : 6U)) {
-        return;
+    const std::vector<ULONG>& ids = role == PinnedRole::GpuFront  ? pinned.front
+                                    : role == PinnedRole::GpuBack ? pinned.back
+                                                                  : pinned.guest;
+    if (!ids.empty()) {
+        SelectCurrentThreadCpuSets(ids);
     }
-    const KAFFINITY front = cores[1];
-    const KAFFINITY back = cores[2];
-    KAFFINITY mask{};
-    switch (role) {
-    case PinnedRole::GpuFront:
-        mask = front;
-        break;
-    case PinnedRole::GpuBack:
-        mask = back;
-        break;
-    case PinnedRole::GuestCore:
-        for (const KAFFINITY core : cores) {
-            mask |= core;
-        }
-        mask &= ~(front | back);
-        break;
-    }
-    if (mask != 0) {
-        SetThreadAffinityMask(GetCurrentThread(), mask);
-    }
+#else
+    (void)role;
+    [[maybe_unused]] static const bool logged = [] {
+        LOG_INFO(Common, "GPU thread pinning is only supported on Windows");
+        return true;
+    }();
 #endif
 }
 
