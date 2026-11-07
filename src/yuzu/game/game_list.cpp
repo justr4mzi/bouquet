@@ -528,6 +528,7 @@ void GameList::AddGamePopup(QMenu& context_menu, u64 program_id, const std::stri
         edit_nup = context_menu.addAction(tr("Edit NUP Metadata..."));
         edit_nup->setEnabled(!nup_conversion_running);
     }
+    QAction* apply_recommended = context_menu.addAction(tr("Apply Recommended Settings"));
     QAction* properties = context_menu.addAction(tr("Configure Game"));
     if (program_id != 0 && program_id == reportable_program_id) {
         auto* report = context_menu.addAction(tr("Submit compatibility report…"));
@@ -627,6 +628,8 @@ void GameList::AddGamePopup(QMenu& context_menu, u64 program_id, const std::stri
                 emit CreateShortcut(program_id, path, QtCommon::Game::ShortcutTarget::Applications);
             });
 #endif
+    connect(apply_recommended, &QAction::triggered, this,
+            [this, program_id, path]() { emit ApplyRecommendedSettingsRequested(program_id, path); });
     connect(properties, &QAction::triggered, this,
             [this, path]() { emit OpenPerGameGeneralRequested(path); });
 

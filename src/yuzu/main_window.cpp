@@ -415,6 +415,26 @@ MainWindow::MainWindow(bool has_broken_vulkan)
 
     UISettings::RestoreWindowState(config);
 
+    if (UISettings::values.first_start.GetValue()) {
+        QMessageBox lang_box(nullptr);
+        lang_box.setWindowTitle(QStringLiteral("Hortensia"));
+        lang_box.setText(QStringLiteral("Choose your language / Choisissez votre langue :"));
+        QPushButton* btn_fr = lang_box.addButton(QStringLiteral("Français"), QMessageBox::ActionRole);
+        QPushButton* btn_en = lang_box.addButton(QStringLiteral("English"), QMessageBox::ActionRole);
+        QPushButton* btn_sys = lang_box.addButton(QStringLiteral("Système / System"), QMessageBox::ActionRole);
+        lang_box.setDefaultButton(btn_fr);
+        lang_box.exec();
+
+        if (lang_box.clickedButton() == btn_fr) {
+            UISettings::values.language = std::string("fr");
+        } else if (lang_box.clickedButton() == btn_en) {
+            UISettings::values.language = std::string("en");
+        } else {
+            UISettings::values.language = std::string("");
+        }
+        config->SaveAllValues();
+    }
+
     LoadTranslation();
     FrontendCommon::GenerateSettings();
 
@@ -1650,6 +1670,8 @@ void MainWindow::ConnectWidgetEvents() {
             [this] { multiplayer_state->UpdateGameList(game_list->GetModel()); });
     connect(game_list, &GameList::SaveConfig, this, &MainWindow::OnSaveConfig);
 
+    connect(game_list, &GameList::ApplyRecommendedSettingsRequested, this,
+            &MainWindow::OnGameListApplyRecommendedSettings);
     connect(game_list, &GameList::OpenPerGameGeneralRequested, this,
             &MainWindow::OnGameListOpenPerGameProperties);
     connect(game_list, &GameList::LinkToRyujinxRequested, this, &MainWindow::OnLinkToRyujinx);
@@ -2158,19 +2180,26 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
         asked_recommended_mkw_settings = true;
         use_recommended_mkw_settings = false;
     }
-    if (title_id == Settings::MarioKartWorldProgramId && !asked_recommended_mkw_settings) {
-        asked_recommended_mkw_settings = true;
-        use_recommended_mkw_settings =
-            QMessageBox::question(
-                this, tr("Recommended Mario Kart World settings"),
-                tr("Use the recommended settings for Mario Kart World?\n\n"
-                   "Vulkan, 1x resolution, GPU Fast, asynchronous shaders, BC3, conservative VRAM, "
-                   "reactive flushing off, FIFO Relaxed VSync, handheld mode, Bilinear, and "
-                   "FXAA.\n\n"
-                   "They apply to Mario Kart World until Hortensia is closed. Your saved settings "
-                   "are not changed."),
-                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes;
-        LOG_INFO(Config, "MKW recommended settings accepted: {}", use_recommended_mkw_settings);
+    if (title_id == Settings::MarioKartWorldProgramId) {
+        if (!UISettings::values.recommended_settings_asked.GetValue() && !asked_recommended_mkw_settings) {
+            asked_recommended_mkw_settings = true;
+            use_recommended_mkw_settings =
+                QMessageBox::question(
+                    this, tr("Recommended Mario Kart World settings"),
+                    tr("Use the recommended settings for Mario Kart World?\n\n"
+                       "Vulkan, 1x resolution, GPU Fast, asynchronous shaders, BC3, conservative VRAM, "
+                       "reactive flushing off, FIFO Relaxed VSync, handheld mode, Bilinear, and "
+                       "FXAA.\n\n"
+                       "They apply to Mario Kart World until Hortensia is closed. Your saved settings "
+                       "are not changed."),
+                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes;
+            UISettings::values.recommended_settings_asked = true;
+            UISettings::values.use_recommended_settings = use_recommended_mkw_settings;
+            config->SaveAllValues();
+            LOG_INFO(Config, "MKW recommended settings accepted: {}", use_recommended_mkw_settings);
+        } else if (UISettings::values.recommended_settings_asked.GetValue()) {
+            use_recommended_mkw_settings = UISettings::values.use_recommended_settings.GetValue();
+        }
     }
     if (Settings::ApplyMarioKartWorldPreset(Settings::values, title_id,
                                           use_recommended_mkw_settings)) {
@@ -3105,6 +3134,45 @@ void MainWindow::OnGameListShowList(bool show) {
     game_list->setVisible(show);
     game_list_placeholder->setVisible(!show);
 };
+
+void MainWindow::OnGameListApplyRecommendedSettings(u64 program_id, const std::string& game_path) {
+    if (program_id == 0 && !game_path.empty()) {
+        const auto v_file = Core::GetGameFileFromPath(QtCommon::vfs, game_path);
+        if (const auto loader = Loader::GetLoader(*QtCommon::system, v_file)) {
+            loader->ReadProgramId(program_id);
+        }
+    }
+    if (program_id == 0) {
+        return;
+    }
+
+    Settings::GpuVendor vendor = Settings::GpuVendor::Unknown;
+    const auto device = static_cast<size_t>(Settings::values.vulkan_device.GetValue());
+    if (device < vk_device_records.size()) {
+        vendor = Settings::GpuVendorFromName(vk_device_records[device].name);
+    }
+    const std::string summary = Settings::ApplyHortensiaSmartPreset(Settings::values, program_id, vendor);
+
+    if (program_id == Settings::MarioKartWorldProgramId) {
+        UISettings::values.recommended_settings_asked = true;
+        UISettings::values.use_recommended_settings = true;
+        use_recommended_mkw_settings = true;
+    }
+
+    QtCommon::system->ApplySettings();
+    Settings::UpdateGPUAccuracy();
+    config->SaveAllValues();
+
+    if (!summary.empty()) {
+        QMessageBox::information(
+            this, tr("Recommended Settings Applied"),
+            tr("Recommended settings have been applied for this game:\n\n%1").arg(QString::fromStdString(summary)));
+    } else {
+        QMessageBox::information(
+            this, tr("Recommended Settings Applied"),
+            tr("Recommended settings (Vulkan, asynchronous shaders) have been applied for this title."));
+    }
+}
 
 void MainWindow::OnGameListOpenPerGameProperties(const std::string& file) {
     u64 title_id{};

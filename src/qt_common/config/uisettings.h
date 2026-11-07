@@ -136,6 +136,9 @@ struct Values {
 
     Setting<bool> check_for_updates{linkage, true, "check_for_updates", Category::UiGeneral};
 
+    Setting<bool> recommended_settings_asked{linkage, false, "recommended_settings_asked", Category::UiGeneral};
+    Setting<bool> use_recommended_settings{linkage, false, "use_recommended_settings", Category::UiGeneral};
+
     // Linux/MinGW may support (requires libdl support)
     SwitchableSetting<bool> enable_gamemode{linkage,
 #ifndef _MSC_VER
