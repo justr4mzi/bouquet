@@ -437,3 +437,22 @@ Les remotes `pokedinner` (`https://git.eden-emu.dev/Franseven/PokeDinner-a-Eglan
    - `k_address_arbiter.cpp` : utilisation sym?trique de `ReadFromUser` pour `WaitIfEqual64`, supprimant l'erreur MSVC C5245 tout en conservant la validation de m?moire utilisateur.
    - `.github/workflows/release-binaries.yml` : suppression du job `prepare-release` polluant les tags Git distants lors des builds de test ; publication conditionnelle avec cr?ation du tag Git uniquement sur publication officielle (`draft: false`) ; support du fichier de notes `docs/RELEASE_NOTES_v0.2.0.md`.
    - Suppression compl?te des tags et brouillons de test obsol?tes sur GitHub (build-10, build-34, build-35, build-36, build-37, v0.2.0-rc1-mkw-perf, v0.2.0-rc2).
+
+
+8. **Correctifs post-v0.2.0 (Étapes 2, 3, 4, 5, 6 sur rebase/smileytatsu)** :
+   - **The Legend of Zelda: Ocarina of Time (Étape 2)** :
+     - *Crash à ~4 min sur `ISETP.EX`* : modularisation et portage complet des en-têtes Ampere (`instruction.h`, `geometry_exit.h`, `register_pressure.h`, `trap_guards.h`, `program_capture.h`) et implémentation du lowering de `ISETP.EX` (bit 72, destination_b, accumulateur et combinaison logique) depuis Lichii commit `c9ebb5c3` (Zortos #87). Prise en charge des décalages à entonnoir 64 bits (`SHF.R.U64`) et masquage des registres hauts.
+     - *Deadlock split GPU / écrans noirs (~2 min)* : implémentation de `SubmitDeferredWork()` (#149 chuppatricky) dans `fence_manager.h`, `vk_fence_manager` et `vk_scheduler` : soumission des commandes différées avant de bloquer sur les fences en attente.
+     - *Flashes blancs / surexposition caméra* : portage de #215 (WeslieDE) dans `query_dma.h`, `maxwell_3d.cpp`, `macro.cpp` et `vk_rasterizer.cpp` : attente et vidage des requêtes d'occlusion avant toute lecture DMA de macro afin d'éviter les comptages obsolètes.
+     - *Désynchronisation de trame* : synchronisation des trames d'OOT avec `frames_ahead = 0` dans `nx2_gsv.h` (`ebd4768925` Duck912) et reconstruction des pipelines de calcul lorsque les slots de pointeurs nuls reçoivent des tampons alloués (`1f05fd27f7` Duck912).
+   - **Donkey Kong Bananza (Étape 3)** :
+     - *Affichage du terrain et des textures* : portage des correctifs Franseven (`PokeDinner 2.5.0`) :
+       1. `vk_rasterizer.cpp` (`76df4591a7`) : interception et exécution hôte du programme de réinitialisation des indirect draw records (11 instructions natives effectuant des écritures globales via des pointeurs indirects non mappables en storage buffers). Restaure le nombre d'instances à 1 au lieu de 0, rendant le terrain et les blocs visibles.
+       2. `dma_pusher.cpp` (`5a9573121e`) : vidage immédiat (`FlushRegion` sous `Drain`) des petits blocs de paramètres de macros écrits par le GPU (`flush_parameters`, contrôlable par `EDEN_NX2_PBFLUSH`) avant lecture par le pusher, évitant la désynchronisation des arguments de culling.
+   - **Intégrations upstream & Stabilité (Étape 4 & 5)** :
+     - Synchronisation des workers : comptage des workers arrêtés sous le mutex de file (`45ebf0f7` kraibse / Lichii #290) évitant les réveils perdus.
+     - Pokopia & Fast Fusion : lowering du `ULEA` gardé sans `.HI` ni carry-out (`ff8d461cb2`) et échantillonnage de profondeur en coordonnées texels (`fae454cfeb`), normalisation rectangulaire et mapping G8R24 vers D24_UNORM_S8_UINT.
+     - Robustesse UI : protection contre le déréférencement d'un pointeur `loader` nul lors de la lecture des métadonnées de contrôle (`main_window.cpp:2717`).
+   - **Pacing & Pipeline Preloading (Étape 6)** :
+     - Plafond de fluidité à 60 FPS max dans les menus et écrans de chargement pour Ocarina of Time (`0400486024DEC000`) et Nintendo Switch Sports (`04008E001F098000`) dans `PaceToVblank` (`nx2_gsv.h`) sans affecter le déverrouillage de Mario Kart World.
+     - Maintien du préchargement intégral des pipelines pour tous les jeux Switch 2 (`PreloadAllPipelines` / `Settings::CurrentProgramIsSwitch2()`), garantissant l'absence de saccades de compilation en jeu.
