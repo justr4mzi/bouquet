@@ -1457,7 +1457,7 @@ inline LoweredProgram LowerToMaxwellWith(std::span<const Instruction> code, u32 
             // EDEN_NX2_TENSOR=stub keeps the rest of the program but makes every HMMA D = C.
             static const char* const forced_mode = std::getenv("EDEN_NX2_TENSOR");
             const char* const mode = forced_mode ? forced_mode : tensor ? "1" : nullptr;
-            if (!mode) return fail(index, "native matrix multiply (set EDEN_NX2_TENSOR to emulate)");
+            if (!mode || std::string_view{mode} == "0" || std::string_view{mode} == "off") return fail(index, "native matrix multiply (set EDEN_NX2_TENSOR to emulate)");
             const u32 a = insn.Bits(24, 8), b = insn.Bits(32, 8), c = insn.Bits(64, 8);
             const u32 shape = insn.words[2] & ~0xffU;
             const u32 depth = shape == 0 ? 8U : 16U;
