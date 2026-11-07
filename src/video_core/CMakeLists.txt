@@ -52,6 +52,7 @@ add_library(video_core STATIC
     engines/fermi_2d.h
     engines/kepler_compute.cpp
     engines/kepler_compute.h
+    engines/native_upscale.h
     engines/kepler_memory.cpp
     engines/kepler_memory.h
     engines/maxwell_3d.cpp
