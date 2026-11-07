@@ -99,6 +99,7 @@ add_library(video_core STATIC
     macro_memo.h
     macro_turing.h
     fence_manager.h
+    query_dma.h
     gpu.cpp
     gpu.h
     gpu_split.cpp
