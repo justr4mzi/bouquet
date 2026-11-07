@@ -1297,7 +1297,7 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
     }
 #ifdef _WIN32
     // AMD's Windows driver can crash when a geometry shader exports all generic locations.
-    if (device.GetDriverID() == VK_DRIVER_ID_AMD_PROPRIETARY && !key.xfb_enabled) {
+    if (device.GetDriverID() == VK_DRIVER_ID_AMD_PROPRIETARY && !key.state.xfb_enabled) {
         constexpr size_t geometry_index = static_cast<size_t>(Maxwell::ShaderType::Geometry);
         constexpr size_t fragment_index = static_cast<size_t>(Maxwell::ShaderType::Pixel);
         if (key.unique_hashes[geometry_index] != 0 &&
