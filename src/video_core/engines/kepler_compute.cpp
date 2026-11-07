@@ -446,7 +446,6 @@ void KeplerCompute::CallMethod(Core::System& system, u32 method, u32 method_argu
     if (front_macros && !VideoCommon::GpuSplit::OnBackThread()) {
         ReleaseFront();
     }
-    }
     if (native_mode) {
         // Most of the compute class's register writes (QMD fields replayed by its macros for
         // each of thousands of dispatches a second) only store the value: ~4% of title 1's GPU

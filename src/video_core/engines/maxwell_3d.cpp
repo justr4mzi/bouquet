@@ -527,7 +527,6 @@ void Maxwell3D::CallMethod(Core::System& system, u32 method, u32 method_argument
     if (front_macros && !VideoCommon::GpuSplit::OnBackThread()) {
         ReleaseFront();
     }
-    }
     // It is an error to write to a register other than the current macro's ARG register before
     // it has finished execution.
     if (executing_macro != 0 && method != executing_macro + 1) {
@@ -599,7 +598,6 @@ void Maxwell3D::DumpRecentWrites(u32 method) {
 void Maxwell3D::CallMultiMethod(Core::System& system, u32 method, const u32* base_start, u32 amount, u32 methods_pending) {
     if (front_macros && !VideoCommon::GpuSplit::OnBackThread()) {
         ReleaseFront();
-    }
     }
     RecordWrite(method, amount ? base_start[0] : 0, amount, methods_pending);
     // Methods after 0xE00 are special, they're actually triggers for some microcode that was
@@ -1003,7 +1001,6 @@ void Maxwell3D::ReleaseFront() {
     front.reset();
     front_macros = false;
     LOG_INFO(HW_GPU, "GPU thread split stopped: 3D macros back on the engine");
-}
 }
 
 void Maxwell3D::FrontWrite(VideoCommon::GpuSplit& split, FrontState& fs, u32 method,
