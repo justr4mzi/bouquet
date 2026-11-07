@@ -1770,7 +1770,20 @@ inline LoweredProgram LowerToMaxwellWith(std::span<const Instruction> code, u32 
             emit(0x5c18000000000000ULL | predicate | dest | (u64{248} << 8) | (u64{247} << 20) | (u64{16} << 39));
             break;
         }
-        case 0x23c: { // HMMA.1688/.16816.F16, software warp expansion (no tensor extension required).
+        case 0x23c: { // HMMA.1688/.16816.F16: D(16x8) = A(16xK) * B(Kx8) + C, f16 fragments.
+            // Lane t (group g = t/4, i = t%4): A regs hold rows g / g+8 at k 2i..2i+1 (a0, a1) and,
+            // for K = 16, 8+2i.. (a2, a3); B regs hold k 2i.. (b0) / 8+2i.. (b1) of column g; D holds
+            // rows g / g+8 at columns 2i, 2i+1. Rebuilt from shuffles; each product is summed in f32
+            // (FFMA) and the sums are rounded to half after every eight products, as Eden's lowering
+            // (checked against a CPU reference of the console's results) does.
+            // The expansion is correct but large: title 4's 372-HMMA network takes the host driver
+            // minutes to compile, so it is only lowered for the passes of a game DLSS evaluation
+            // the game's own network may draw (`tensor`), or with EDEN_NX2_TENSOR set (the QMD
+            // still completes when rejected).
+            // EDEN_NX2_TENSOR=stub keeps the rest of the program but makes every HMMA D = C.
+            static const char* const forced_mode = std::getenv("EDEN_NX2_TENSOR");
+            const char* const mode = forced_mode ? forced_mode : tensor ? "1" : nullptr;
+            if (!mode || std::string_view{mode} == "0" || std::string_view{mode} == "off") return fail(index, "native matrix multiply (set EDEN_NX2_TENSOR to emulate)");
             const u32 a = insn.Bits(24, 8), b = insn.Bits(32, 8), c = insn.Bits(64, 8);
             const u32 mode = insn.words[2] & ~0xffU;
             const u32 depth = mode == 0 ? 8U : 16U;
@@ -2539,130 +2552,35 @@ inline LoweredProgram LowerToMaxwellWith(std::span<const Instruction> code, u32 
                 (per_tap && (bindless || depth || insn.Bits(80, 1) || insn.Bits(91, 1))) ||
                 insn.Bits(89, 1) || mask == 0 ||
                 (bindless ? (handle >= 246 || insn.Bits(46, 13) || !insn.Bits(91, 1))
-                          : (insn.Bits(40, 14) > 0x1fff || binding >= 18 ||
-                             (result.required_texture_buffer != ~0U && result.required_texture_buffer != binding))))
+                          : (insn.Bits(40, 14) > 0x1fff || binding >= 18)))
                 return fail(index, "native texture gather mode");
-            if (per_tap) {
-                if (!insn.Bits(60, 1) || mask != 15 || source_a + 1 >= register_limit ||
-                    source_b + 1 >= register_limit || (dest != 255 && dest + 1 >= register_limit) ||
-                    (second_dest != 255 && second_dest + 1 >= register_limit))
-                    return fail(index, "native per-tap gather operands");
-                std::array<std::optional<u32>, 2> packed_offsets;
-                bool imad_offsets = false;
-                bool predicate_clobbered = false;
-                if (!bounded_control)
-                    return fail(index, "native per-tap gather control-flow proof");
-                for (u32 cursor = index; cursor > 0 && (!packed_offsets[0] || !packed_offsets[1]);) {
-                    if (control_entries[cursor])
-                        return fail(index, "native per-tap gather control-flow proof");
-                    const auto& definition = code[--cursor];
-                    if (definition.Bits(12, 4) == 15) continue;
-                    const u32 op = definition.Bits(0, 12), target = definition.Bits(16, 8);
-                    u32 written_predicates = ~0U;
-                    switch (op) {
-                    case 0x802: case 0x805: case 0x819: case 0x823: case 0x91a:
-                    case 0x945: case 0x947:
-                        written_predicates = 0;
-                        break;
-                    case 0x212: case 0x812: case 0x224: case 0x424: case 0x624:
-                    case 0x824: case 0xb63:
-                        written_predicates = 1U << definition.Bits(81, 3);
-                        break;
-                    case 0x810: case 0x81c:
-                        written_predicates = (1U << definition.Bits(81, 3)) |
-                                             (1U << definition.Bits(84, 3));
-                        break;
-                    }
-                    predicate_clobbered |= (written_predicates & (1U << (native_predicate & 7))) != 0;
-                    if (op == 0xb63) {
-                        const u32 count = static_cast<u32>(std::popcount(definition.Bits(72, 4)));
-                        const u32 high = definition.Bits(64, 8);
-                        const bool packed = definition.Bits(79, 1);
-                        const u32 first_count = packed ? (high == 255 ? (count + 1) / 2 : 1U) : high == 255 ? count : std::min(count, 2U);
-                        const u32 second_count = packed ? (count > 2 ? 1U : 0U) : count > 2 ? count - 2 : 0U;
-                        for (u32 i = 0; i < 2; ++i) {
-                            if (packed_offsets[i]) continue;
-                            const u32 reg = source_b + i;
-                            if ((target != 255 && reg >= target && reg < target + first_count) ||
-                                (high != 255 && reg >= high && reg < high + second_count))
-                                return fail(index, "native per-tap gather offset clobber");
-                        }
-                        continue;
-                    }
-                    auto count = write_count(definition);
-                    switch (op) {
-                    case 0x827: case 0x307: case 0x211: case 0x811: case 0xa11: case 0x624: case 0x831:
-                    case 0x832: case 0x224:
-                        count = 1;
-                        break;
-                    case 0x805:
-                        count = 2;
-                        break;
-                    case 0x945: case 0x947: case 0x91a:
-                        count = 0;
-                        break;
-                    }
-                    if (!count) return fail(index, "native per-tap gather offset proof");
-                    for (u32 i = 0; i < 2; ++i) {
-                        if (packed_offsets[i] || target == 255 || source_b + i < target || source_b + i >= target + *count)
-                            continue;
-                        const bool move = op == 0x802 && !definition.Bits(24, 8) && definition.words[2] == 0xf00;
-                        const bool imad = op == 0x424 && definition.Bits(24, 8) == 255 && definition.words[2] == 0x078e00ff;
-                        const bool same_guard = imad && definition.Bits(12, 4) == native_predicate &&
-                                                !predicate_clobbered;
-                        if ((!move && !imad) || (definition.Bits(12, 4) != 7 && !same_guard) ||
-                            (definition.words[3] & 0xc00001ffU))
-                            return fail(index, "native per-tap gather nonconstant offsets");
-                        imad_offsets |= imad;
-                        packed_offsets[i] = definition.words[1];
-                    }
-                }
-                if (!half && !imad_offsets) {
-                    bool terminal = false;
-                    for (const auto& instruction : code) {
-                        if (instruction.Bits(12, 4) == 15) continue;
-                        const u32 op = instruction.Bits(0, 12);
-                        if (op == 0x94d && instruction.Bits(12, 4) == 7) {
-                            terminal = true;
-                            break;
-                        }
-                        if (op != 0x326 && op != 0x802 && op != 0x307 && op != 0x421 &&
-                            op != 0xa20 && op != 0xb63 && op != 0x221 && op != 0x823 &&
-                            op != 0x423 && op != 0x223 && op != 0x308 && op != 0x220 && op != 0x820)
-                            return fail(index, "native per-tap gather control-flow proof");
-                    }
-                    if (!terminal) return fail(index, "native per-tap gather terminal proof");
-                }
-                for (const auto& packed : packed_offsets) {
-                    if (!packed) return fail(index, "native per-tap gather missing offsets");
-                    // Each byte is a signed 6-bit offset; the gather reads only the low six bits.
-                    for (u32 shift = 0; shift < 32; shift += 8) {
-                        const u32 value = (*packed >> shift) & 255;
-                        if (value > 31 && value < 224)
-                            return fail(index, "native per-tap gather offset range");
-                    }
-                }
-                for (u32 i = 0; i < packed_offsets.size(); ++i)
-                    emit(0x010000000007f000ULL | (248 + i) | (u64{*packed_offsets[i]} << 20));
-            }
-            if (!bindless) result.required_texture_buffer = binding;
+            const bool second_buffer = !bindless && !bind_texture_buffer(binding);
             // Two coordinates: x in Ra, y in Rb (the coordinate list splits evenly across them);
             // with an offset, x and y in Ra, Ra+1 and the offset in Rb.
             const u32 y = !offsets && !per_tap && !depth ? source_b : source_a == 255 ? 255U : source_a + 1;
             emit(0x5c98000000000000ULL | predicate | 250 | (u64{15} << 39) | (u64{source_a} << 20));
-            emit(0x5c98000000000000ULL | predicate | 251 | (u64{15} << 39) |
-                 (u64{array ? source_a + 1 : y} << 20));
-            if (array)
-                emit(0x5c98000000000000ULL | predicate | 252 | (u64{15} << 39) | (u64{source_b} << 20));
-            if (offsets || depth) {
-                emit(0x5c98000000000000ULL | predicate | 246 | (u64{15} << 39) | (u64{source_b} << 20));
-            }
-            if (bindless) {
+            emit(0x5c98000000000000ULL | predicate | 251 | (u64{15} << 39) | (u64{y} << 20));
+            if (second_buffer) {
+                emit(0x4c98000000070000ULL | 246 | (u64{15} << 39) | (u64{insn.Bits(40, 14)} << 20) |
+                     (u64{binding} << 34));
+                if (offsets) {
+                    emit(0x5c98000000000000ULL | predicate | 247 | (u64{15} << 39) | (u64{source_b} << 20));
+                }
+                emit(0xdec0000000000000ULL | predicate | 250 | (u64{250} << 8) | (u64{246} << 20) |
+                     (u64{2} << 28) | (u64{mask} << 31) | (u64{offsets ? 1U : 0U} << 36) |
+                     (u64{insn.Bits(87, 2)} << 38) | (u64{insn.Bits(90, 1)} << 49) | (u64{7} << 51));
+            } else if (bindless) {
+                if (offsets) {
+                    emit(0x5c98000000000000ULL | predicate | 246 | (u64{15} << 39) | (u64{source_b} << 20));
+                }
                 emit(0x5c98000000000000ULL | predicate | 246 | (u64{15} << 39) | (u64{handle} << 20));
                 emit(0xdec0000000000000ULL | predicate | 250 | (u64{250} << 8) | (u64{246} << 20) |
                      (u64{array ? 3U : 2U} << 28) | (u64{mask} << 31) | (u64{insn.Bits(87, 2)} << 38) |
                      (u64{insn.Bits(90, 1)} << 49) | (u64{7} << 51));
             } else {
+                if (offsets) {
+                    emit(0x5c98000000000000ULL | predicate | 246 | (u64{15} << 39) | (u64{source_b} << 20));
+                }
             emit(0xc800000000000000ULL | predicate | 250 | (u64{250} << 8) |
                  (u64{per_tap ? 248U : offsets || depth ? 246U : 255U} << 20) | (u64{array ? 3U : 2U} << 28) | (u64{mask} << 31) |
                  (u64{insn.Bits(40, 14)} << 36) | (u64{insn.Bits(90, 1)} << 49) | (u64{depth} << 50) | (u64{7} << 51) |
@@ -3426,9 +3344,15 @@ inline LoweredProgram LowerToMaxwellWith(std::span<const Instruction> code, u32 
                 emit(base(0x3828000000000000ULL) | (u64{insn.Bits(24, 8)} << 8) | (u64{insn.words[1]} << 20));
                 break;
             }
-            // U64 left shifts through 32 have the same high word as a 32-bit funnel shift.
-            const bool u64_left = insn.Bits(73, 2) == 1 && !insn.Bits(76, 1);
-            if ((insn.Bits(73, 2) != 3 && !is_signed && !u64_left) || insn.Bits(75, 1) || !insn.Bits(80, 1) || insn.words[1] > 32) return fail(index, "native funnel-shift mode");
+            if (insn.Bits(73, 2) == 1 && insn.Bits(76, 1) && !insn.Bits(75, 1) &&
+                insn.words[1] <= 32 && insn.Bits(24, 8) != 255 && insn.Bits(64, 8) != 255) {
+                // Right funnel shift of the pair (high:low) with neither word zero: the mirror of
+                // the left funnel below, low word as the destination and high word as Rc.
+                emit(base(0x3828000000000000ULL) | (u64{insn.Bits(24, 8)} << 8) |
+                     (u64{insn.Bits(64, 8)} << 39) | (u64{insn.words[1]} << 20));
+                break;
+            }
+            if ((insn.Bits(73, 2) != 3 && !is_signed) || insn.Bits(75, 1) || !insn.Bits(80, 1) || insn.words[1] > 32) return fail(index, "native funnel-shift mode");
             const u32 low = insn.Bits(24, 8), high = insn.Bits(64, 8), shift = insn.words[1];
             if (insn.Bits(76, 1)) {
                 if (low != 255) return fail(index, "native nonzero low right-shift word");

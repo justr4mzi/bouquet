@@ -708,41 +708,51 @@ private:
         return AsyncBufferDownloads() || memory_tracker.IsRegionPreflushable(device_addr, size);
     }
 
-    /// Queues a GPU write for download at the next fence where DownloadsAtFence holds. With only
-    /// Preflushable marks, just the marked pages are queued: a write that covers one marked page
-    /// of a large buffer would otherwise copy the whole buffer back at every fence.
-    void QueueFenceDownload(DAddr device_addr, u64 size) {
-        static const bool exact = [] {
-            const char* value = std::getenv("EDEN_NX2_EXACT_PREFLUSH");
-            return value == nullptr || value[0] != '0';
-        }();
+    /// Whether the range holds GPU-written data that no fence downloads (not Preflushable).
+    bool HasGpuWritesNotDownloadedAtFence(DAddr device_addr, u64 size) {
+        if (AsyncBufferDownloads()) {
+            return false;
+        }
+        bool found = false;
+        memory_tracker.ForEachDownloadRange(device_addr, size, false, [&](u64 start, u64 range_size) {
+            if (found) {
+                return;
+            }
+            u64 covered = 0;
+            memory_tracker.ForEachPreflushableRange(start, range_size, [&](u64 lower, u64 length) {
+                const u64 begin = (std::max)(lower, start);
+                const u64 end = (std::min)(lower + length, start + range_size);
+                covered += end > begin ? end - begin : 0;
+            });
+            found = covered < range_size;
+        });
+        return found;
+    }
+
+    /// A GPU write: queues its Preflushable parts for download at the next fence and traps reads
+    /// of the rest. Queuing the whole range when any page of it was Preflushable copied whole
+    /// written storage buffers (up to 8 MiB) back at every fence: ~5 GB/s in title 1's forest.
+    void QueueGpuWrite(DAddr device_addr, u64 size) {
         if (AsyncBufferDownloads()) {
             uncommitted_gpu_modified_ranges.Add(device_addr, size);
             return;
         }
-        if (!exact) {
-            if (memory_tracker.IsRegionPreflushable(device_addr, size)) {
-                uncommitted_gpu_modified_ranges.Add(device_addr, size);
-            } else {
-                ArmReadTraps(device_addr, size);
-            }
-            return;
-        }
         const DAddr end = device_addr + size;
-        u64 queued = 0;
-        memory_tracker.ForEachPreflushableRange(device_addr, size, [&](DAddr begin, u64 length) {
-            const DAddr lower = (std::max)(begin, device_addr);
-            const DAddr upper = (std::min)(begin + length, end);
-            if (lower < upper) {
-                uncommitted_gpu_modified_ranges.Add(lower, upper - lower);
-                queued += upper - lower;
+        DAddr cursor = device_addr;
+        memory_tracker.ForEachPreflushableRange(device_addr, size, [&](DAddr start, u64 range_size) {
+            const DAddr lower = (std::max)(start, cursor);
+            const DAddr upper = (std::min)(start + range_size, end);
+            if (lower >= upper) {
+                return;
             }
+            if (lower > cursor) {
+                ArmReadTraps(cursor, lower - cursor);
+            }
+            uncommitted_gpu_modified_ranges.Add(lower, upper - lower);
+            cursor = upper;
         });
-        if (queued < size) {
-            ArmReadTraps(device_addr, size);
-        }
-        if (Nx2DownloadTrace::g_enabled && queued != 0) [[unlikely]] {
-            Nx2DownloadTrace::Queued(device_addr, size, queued);
+        if (cursor < end) {
+            ArmReadTraps(cursor, end - cursor);
         }
     }
 

@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <functional>
+#include <atomic>
 #include <memory>
 
 #include "common/common_funcs.h"

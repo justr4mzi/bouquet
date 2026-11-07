@@ -383,6 +383,9 @@ ConfigurePerGame::ConfigurePerGame(QWidget* parent, u64 title_id_, const std::st
     graphics_tab = std::make_unique<ConfigureGraphics>(
         system_, vk_device_records, [&]() { graphics_advanced_tab->ExposeComputeOption(); },
         [](Settings::AspectRatio, Settings::ResolutionSetup) {}, tab_group, *builder, this);
+    connect(graphics_tab.get(), &ConfigureGraphics::DeviceMemoryChanged,
+            graphics_advanced_tab.get(), &ConfigureGraphicsAdvanced::SetDeviceMemory);
+    graphics_advanced_tab->SetDeviceMemory(graphics_tab->SelectedDeviceMemory());
     input_tab = std::make_unique<ConfigureInputPerGame>(system_, game_config.get(), this);
     system_tab = std::make_unique<ConfigureSystem>(system_, tab_group, *builder, this);
     network_tab = std::make_unique<ConfigureNetwork>(system_, this);
@@ -876,7 +879,7 @@ bool ConfigurePerGame::SaveNupMetadata(bool show_error) {
         }
         return false;
     }
-    FileSys::Nup::MetadataUpdate update;
+    FileSys::Nup::MetadataEdit update;
     if (title_changed) {
         update.title_name = new_title;
     }
@@ -886,11 +889,11 @@ bool ConfigurePerGame::SaveNupMetadata(bool show_error) {
     std::string error;
     addons_tab->SetFile(nullptr);
     file.reset();
-    const auto res = FileSys::Nup::UpdateMetadata(file_path, update, &error);
+    const auto res = FileSys::Nup::EditNupMetadata(file_path, update, &error);
     file = Core::GetGameFileFromPath(system.GetFilesystem(),
                                    Common::FS::PathToUTF8String(file_path));
     addons_tab->SetFile(file);
-    if (res != FileSys::Nup::PackResult::Success) {
+    if (res != FileSys::Nup::EditResult::Success && res != FileSys::Nup::EditResult::NoChange) {
         if (show_error) {
             QMessageBox::warning(
                 this, tr("Update NUP Metadata"),

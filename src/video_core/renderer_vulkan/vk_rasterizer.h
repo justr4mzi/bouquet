@@ -130,6 +130,7 @@ public:
     void FlushAndInvalidateRegion(
         DAddr addr, u64 size, VideoCommon::CacheType which = VideoCommon::CacheType::All) override;
     void WaitForIdle() override;
+    void Nx2Membar() override;
     void FragmentBarrier() override;
     void TiledCacheBarrier() override;
     void FlushCommands() override;
@@ -196,7 +197,7 @@ private:
     /// the GPU makes them now (BufferCache::Nx2CopyListPages).
     void SubmitNx2ListCopies();
 
-    void UpdateDynamicStates();
+    void UpdateDynamicStates(GraphicsPipeline* draw_pipeline = nullptr);
 
     void HandleTransformFeedback();
 
@@ -265,8 +266,6 @@ private:
     AccelerateDMA accelerate_dma;
     FenceManager fence_manager;
     FrameDump frame_dump;
-
-    vk::Event wfi_event;
 
     boost::container::static_vector<u32, MAX_IMAGE_VIEWS> image_view_indices;
     std::array<VideoCommon::ImageViewId, MAX_IMAGE_VIEWS> image_view_ids;

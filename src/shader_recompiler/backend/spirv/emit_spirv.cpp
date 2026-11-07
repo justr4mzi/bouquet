@@ -488,6 +488,15 @@ void SetupCapabilities(const Profile& profile, const Info& info, EmitContext& ct
             ctx.AddCapability(spv::Capability::ShaderViewportIndexLayerEXT);
         }
     }
+    // BaseInstance, BaseVertex and DrawIndex are DrawParameters built-ins no matter how the
+    // instance and vertex ids are read.
+    if (info.loads[IR::Attribute::BaseInstance] || info.loads[IR::Attribute::BaseVertex] ||
+        info.loads[IR::Attribute::DrawID] ||
+        (!profile.support_vertex_instance_id &&
+         (info.loads[IR::Attribute::InstanceId] || info.loads[IR::Attribute::VertexId]))) {
+        ctx.AddExtension("SPV_KHR_shader_draw_parameters");
+        ctx.AddCapability(spv::Capability::DrawParameters);
+    }
     if ((info.uses_subgroup_vote || info.uses_subgroup_invocation_id ||
          info.uses_subgroup_shuffles || info.uses_subgroup_mask) &&
         profile.support_vote && profile.SupportsSubgroupStage(ctx.stage)) {

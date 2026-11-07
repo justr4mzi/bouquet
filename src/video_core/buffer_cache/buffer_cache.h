@@ -114,10 +114,21 @@ void BufferCache<P>::TickFrame() {
     runtime.TickFrame(slot_buffers);
     native_indirect_uniforms_this_frame.clear();
     if (frame_tick % 600 == 0 && !uploaded_buffer_ranges.empty()) {
-        for (const auto& [address, size] : uploaded_buffer_ranges) {
-            device_memory.HintCold(address, size);
+        // As in TextureCache::TickFrame: a range uploaded more than once in the window is being
+        // rewritten, not cold.
+        auto& ranges = uploaded_buffer_ranges;
+        std::sort(ranges.begin(), ranges.end());
+        for (size_t i = 0; i < ranges.size();) {
+            size_t next = i + 1;
+            while (next < ranges.size() && ranges[next] == ranges[i]) {
+                ++next;
+            }
+            if (next - i == 1) {
+                device_memory.HintCold(ranges[i].first, ranges[i].second);
+            }
+            i = next;
         }
-        uploaded_buffer_ranges.clear();
+        ranges.clear();
     }
     if (static u64 frames{}; ++frames % 600 == 0) {
         u64 total{};
@@ -275,8 +286,15 @@ std::optional<VideoCore::RasterizerDownloadArea> BufferCache<P>::GetFlushArea(DA
     DAddr device_addr_end_aligned = Common::AlignUp(device_addr + size, Core::DEVICE_PAGESIZE);
     area->start_address = device_addr_start_aligned;
     area->end_address = device_addr_end_aligned;
-    if (memory_tracker.IsRegionPreflushable(device_addr, size)) {
+    // Preflushable data is downloaded at fences, but only where it is marked (QueueGpuWrite): the
+    // rest of the range still needs this flush.
+    if (memory_tracker.IsRegionPreflushable(device_addr, size) &&
+        !HasGpuWritesNotDownloadedAtFence(device_addr_start_aligned,
+                                          device_addr_end_aligned - device_addr_start_aligned)) {
         area->preemtive = true;
+        // The core keeps this area: a later GPU write to its unmarked pages must arm them again.
+        read_trapped_ranges.Subtract(device_addr_start_aligned,
+                                     device_addr_end_aligned - device_addr_start_aligned);
         return area;
     };
     area->preemtive = !IsRegionGpuModified(device_addr_start_aligned,
@@ -472,7 +490,7 @@ bool BufferCache<P>::DMACopy(GPUVAddr src_address, GPUVAddr dest_address, u64 am
         const DAddr diff = base_address - *cpu_src_address;
         const DAddr new_base_address = *cpu_dest_address + diff;
         tmp_intervals.push_back({new_base_address, size});
-        QueueFenceDownload(new_base_address, size);
+        QueueGpuWrite(new_base_address, size);
     };
     gpu_modified_ranges.ForEachInRange(*cpu_src_address, amount, mirror);
     // This subtraction in this order is important for overlapping copies.
@@ -1834,8 +1852,11 @@ void BufferCache<P>::UpdateVertexBuffers() {
     }
     flags[Dirty::VertexBuffers] = false;
 
+    // Most draws change a few of the 32 streams: test the flag here rather than call for each.
     for (u32 index = 0; index < NUM_VERTEX_BUFFERS; ++index) {
-        UpdateVertexBuffer(index);
+        if (flags[Dirty::VertexBuffer0 + index]) {
+            UpdateVertexBuffer(index);
+        }
     }
 }
 
@@ -2024,9 +2045,8 @@ void BufferCache<P>::MarkWrittenBuffer(BufferId buffer_id, DAddr device_addr, u3
     }
     memory_tracker.MarkRegionAsGpuModified(device_addr, size);
     MarkVertexBuffersStale(device_addr, size);
-    Nx2AddRangeOnce(gpu_modified_ranges, nx2_recent_gpu_ranges, nx2_recent_gpu_next, device_addr,
-                    size);
-    QueueFenceDownload(device_addr, size);
+    gpu_modified_ranges.Add(device_addr, size);
+    QueueGpuWrite(device_addr, size);
     if (Tegra::g_nx2_ampere.load(std::memory_order_relaxed)) {
         Tegra::Nx2MarkGpuWritten(device_addr, size);
         Nx2NoteListWrite(buffer_id, device_addr, size);
@@ -2108,7 +2128,12 @@ bool BufferCache<P>::Nx2CopyListPages(u64 tick) {
                 .size = end - begin,
             };
             buffer.MarkUsage(copy.src_offset, copy.size);
-            runtime.CopyBuffer(staging.buffer, buffer, std::span{&copy, 1}, true);
+            // These copies read guest buffers and write separate staging ranges. Synchronize
+            // the batch once instead of serializing graphics/compute for every list page.
+            if (!recorded) {
+                runtime.PreCopyBarrier();
+            }
+            runtime.CopyBuffer(staging.buffer, buffer, std::span{&copy, 1}, false);
             recorded = true;
             std::scoped_lock lock{nx2_list_mutex};
             Nx2ListPage& entry = nx2_list_pages[page];
@@ -2120,6 +2145,9 @@ bool BufferCache<P>::Nx2CopyListPages(u64 tick) {
             entry.copy_tick = tick;
             entry.copy_begin = static_cast<u32>(begin - page);
             entry.copy_end = static_cast<u32>(end - page);
+        }
+        if (recorded) {
+            runtime.PostCopyBarrier();
         }
         nx2_list_copy_requests.clear();
         std::erase_if(nx2_retired_list_copies, [this](auto& retired) {
@@ -2476,23 +2504,37 @@ void BufferCache<P>::TouchBuffer(Buffer& buffer, BufferId buffer_id) noexcept {
 
 template <class P>
 bool BufferCache<P>::SynchronizeBuffer(Buffer& buffer, DAddr device_addr, u32 size) {
-    // An upload over a clean word of the tracker (word_manager.h) finds and changes nothing:
-    // walk only the dirty ones. Verify walks every word and checks the clean words.
-    const bool skip_clean = !Nx2Perf::Verify();
-    if (Nx2Perf::Verify()) {
-        static std::atomic<u32> logged{};
-        if (!memory_tracker.CleanWordsHold(device_addr, size) &&
-            logged.fetch_add(1, std::memory_order_relaxed) < 64) {
-            LOG_ERROR(HW_GPU, "Nx2Perf draw-binds: clean tracker words wrong near {:#x}+{:#x}",
-                      device_addr, size);
-        }
+    // Every draw synchronizes its vertex, index and uniform buffers; with thousands of draws a
+    // frame most find nothing to upload. A range synchronized at the same CPU generation of its
+    // tracker region has had no CPU or cached CPU write since, so its scan would find no pages
+    // and change no bits: skip it. EDEN_NX2_SYNC_SKIP=0 always scans.
+    static const bool sync_skip = [] {
+        const char* value = std::getenv("EDEN_NX2_SYNC_SKIP");
+        return value == nullptr || value[0] != '0';
+    }();
+    const auto [region, generation] =
+        sync_skip ? memory_tracker.CpuGenerationOf(device_addr, size) : std::pair<const void*, u64>{};
+    if (region != nullptr && buffer.synced_region == region &&
+        buffer.synced_generation == generation && device_addr >= buffer.synced_begin &&
+        device_addr + size <= buffer.synced_end) {
+        return true;
     }
-    const auto for_each_upload_range = [&](auto&& func) {
-        if (skip_clean) {
-            memory_tracker.ForEachDirtyUploadRange(device_addr, size, func);
-        } else {
-            memory_tracker.ForEachUploadRange(device_addr, size, func);
+    const auto remember_clean = [&] {
+        if (region == nullptr) {
+            return;
         }
+        const DAddr end = device_addr + size;
+        // Ranges clean at the same generation that touch or overlap join into one.
+        if (buffer.synced_region == region && buffer.synced_generation == generation &&
+            device_addr <= buffer.synced_end && buffer.synced_begin <= end) {
+            buffer.synced_begin = (std::min)(buffer.synced_begin, device_addr);
+            buffer.synced_end = (std::max)(buffer.synced_end, end);
+            return;
+        }
+        buffer.synced_region = region;
+        buffer.synced_generation = generation;
+        buffer.synced_begin = device_addr;
+        buffer.synced_end = end;
     };
 #ifdef __ANDROID__
     const bool use_optimized_vertex_buffers = Settings::values.use_optimized_vertex_buffers.GetValue();
@@ -2524,6 +2566,7 @@ bool BufferCache<P>::SynchronizeBuffer(Buffer& buffer, DAddr device_addr, u32 si
             });
             add_upload(upload_start, device_addr_out + range_size);
         });
+        remember_clean();
         if (total_size_bytes == 0) {
             return true;
         }
@@ -2550,6 +2593,7 @@ bool BufferCache<P>::SynchronizeBuffer(Buffer& buffer, DAddr device_addr, u32 si
             total_size_bytes += range_size;
             largest_copy = (std::max)(largest_copy, range_size);
         });
+        remember_clean();
         if (total_size_bytes == 0) {
             return true;
         }

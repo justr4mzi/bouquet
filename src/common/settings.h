@@ -553,6 +553,15 @@ struct Values {
                                                            "vram_usage_mode",
                                                            Category::RendererAdvanced};
 
+    /// Device memory in MiB the texture cache may fill before it collects in earnest; 0 is Auto.
+    SwitchableSetting<u32, true> texture_cache_memory_limit{linkage,
+                                                            0,
+                                                            0,
+                                                            1048576,
+                                                            "texture_cache_memory_limit",
+                                                            Category::RendererAdvanced,
+                                                            Specialization::Countable};
+
     SwitchableSetting<NvdecEmulation> nvdec_emulation{linkage, NvdecEmulation::Cpu,
                                                       "nvdec_emulation", Category::RendererAdvanced};
 
@@ -618,6 +627,7 @@ struct Values {
     // Donkey Kong Bananza: the game times its own frames (VRR reported in loader/nso.cpp, presents
     // paced to every vblank in nx2_gsv.h), so its speed holds when the frame rate drops. From
     // ZendNevs's Eglantine fork (v2.0.5).
+    SwitchableSetting<bool> dk_30fps{linkage, false, "dk_30fps", Category::RendererAdvanced};
     SwitchableSetting<bool> dk_dynamic_fps{linkage, true, "dk_dynamic_fps",
                                            Category::RendererAdvanced};
 
@@ -786,7 +796,7 @@ struct Values {
     Setting<s32> current_user{linkage, 0, "current_user", Category::System};
 
     SwitchableSetting<ConsoleMode> use_docked_mode{linkage,
-                                                   ConsoleMode::Handheld,
+                                                   ConsoleMode::Docked,
                                                    "use_docked_mode",
                                                    Category::System,
                                                    Specialization::Radio,

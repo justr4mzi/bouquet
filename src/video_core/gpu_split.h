@@ -73,6 +73,10 @@ public:
     [[nodiscard]] bool FrontMacros() const {
         return front_macros;
     }
+    /// Whether the calling thread is the split back thread.
+    [[nodiscard]] static bool OnBackThread() {
+        return on_back_thread;
+    }
 
     /// Whether the calling thread is the back.
     [[nodiscard]] static bool OnBackThread() {
@@ -152,6 +156,7 @@ public:
 
     /// EDEN_NX2_SPLIT_CHECK=1 (debug): reports, with its stack, a thread other than the back
     /// using back-owned state (the Vulkan scheduler) while the back runs entries.
+    static inline thread_local bool on_back_thread{};
     static inline bool check_owner{};
     static void CheckOwner(const char* where);
 

@@ -158,6 +158,20 @@ public:
         cached_pages.clear();
     }
 
+    /// The region holding [addr, addr + size) and its CPU generation (WordManager::cpu_generation),
+    /// or null when the range spans regions or its region does not exist yet.
+    [[nodiscard]] std::pair<const void*, u64> CpuGenerationOf(VAddr addr, u64 size) const noexcept {
+        const size_t page_index = addr >> HIGHER_PAGE_BITS;
+        if (size == 0 || ((addr + size - 1) >> HIGHER_PAGE_BITS) != page_index) {
+            return {nullptr, 0};
+        }
+        const Manager* const manager = top_tier[page_index];
+        if (manager == nullptr) {
+            return {nullptr, 0};
+        }
+        return {manager, manager->cpu_generation};
+    }
+
     /// Call 'func' for each CPU modified range and unmark those pages as CPU modified
     template <typename Func>
     void ForEachUploadRange(VAddr query_cpu_range, u64 query_size, Func&& func) {
@@ -179,6 +193,14 @@ public:
     void ForEachDownloadRange(VAddr query_cpu_range, u64 query_size, bool clear, Func&& func) {
         IteratePages<false>(query_cpu_range, query_size, [&func, clear](Manager* manager, u64 offset, size_t size) {
             manager->ForEachModifiedRange(Type::GPU, clear, manager->cpu_addr + offset, size, func);
+        });
+    }
+
+    /// Call 'func' for each range marked Preflushable
+    template <typename Func>
+    void ForEachPreflushableRange(VAddr query_cpu_range, u64 query_size, Func&& func) {
+        IteratePages<false>(query_cpu_range, query_size, [&func](Manager* manager, u64 offset, size_t size) {
+            manager->ForEachModifiedRange(Type::Preflushable, false, manager->cpu_addr + offset, size, func);
         });
     }
 

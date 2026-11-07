@@ -124,13 +124,13 @@ add_executable(tests
     core/priority_queue.cpp
     core/internal_network/network.cpp
     video_core/memory_tracker.cpp
-    video_core/memory_manager_runs.cpp
-    video_core/nx2_perf_draw_binds.cpp
-    video_core/nx2_perf_texture_writes.cpp
+    video_core/texture_cache_memory_limits.cpp
     video_core/h264_packet.cpp
     video_core/nx2_gpu_mapping.cpp
     video_core/vertex_repack.cpp
+    video_core/query_copy.cpp
     video_core/ampere_lowering.cpp
+    video_core/texture_depth_float.cpp
     video_core/ampere_geometry.cpp
     video_core/ampere_i2f.cpp
     video_core/ampere_returns.cpp
@@ -142,13 +142,7 @@ add_executable(tests
     video_core/uniform_stream_reuse.cpp
     video_core/shader_invalidation.cpp
     video_core/descriptor_table.cpp
-    video_core/global_address_tracking.cpp
-    video_core/nvn_storage_descriptor.cpp
-    video_core/ampere_f2i.cpp
-    video_core/ampere_ldc.cpp
-    video_core/ampere_vote.cpp
-    video_core/shader_attributes.cpp
-    video_core/indirect_reset.cpp
+    video_core/spirv_atomic_retry.cpp
     input_common/calibration_configuration_job.cpp
 )
 

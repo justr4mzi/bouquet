@@ -274,6 +274,9 @@ void GameList::OnPopulatingCompleted(const QStringList& watch_list) {
     // restore collapsed/expanded flags
     if (m_isTreeMode) {
         const auto* root = item_model->invisibleRootItem();
+        for (int i = 0; i < root->rowCount(); ++i) {
+            tree_view->setFirstColumnSpanned(i, root->index(), true);
+        }
         for (int i = 1; i < root->rowCount() - 1; ++i) {
             const auto* dir_item = root->child(i);
             const auto type = dir_item->data(GameListItem::TypeRole).value<GameListItemType>();
@@ -454,6 +457,10 @@ void GameList::PopupContextMenu(const QPoint& menu_location) {
     context_menu.exec(m_currentView->viewport()->mapToGlobal(menu_location));
 }
 
+void GameList::SetReportableProgramId(u64 program_id) {
+    reportable_program_id = program_id;
+}
+
 void GameList::AddGamePopup(QMenu& context_menu, u64 program_id, const std::string& path) {
     // TODO(crueter): Refactor this and make it less bad
     QAction* favorite = context_menu.addAction(tr("Favorite"));
@@ -512,6 +519,11 @@ void GameList::AddGamePopup(QMenu& context_menu, u64 program_id, const std::stri
         edit_nup->setEnabled(!nup_conversion_running);
     }
     QAction* properties = context_menu.addAction(tr("Configure Game"));
+    if (program_id != 0 && program_id == reportable_program_id) {
+        auto* report = context_menu.addAction(tr("Submit compatibility report…"));
+        connect(report, &QAction::triggered, this,
+                [this, program_id] { emit ReportCompatibilityRequested(program_id); });
+    }
 
     favorite->setVisible(program_id != 0);
     favorite->setCheckable(true);

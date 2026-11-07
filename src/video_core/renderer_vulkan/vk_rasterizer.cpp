@@ -63,9 +63,10 @@
 #include "video_core/texture_cache/texture_cache_base.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
-#include "video_core/memory_manager.h"
-#include "video_core/nx2_debug_control.h"
+#include "video_core/nx2.h"
 #include "video_core/nx2_profile.h"
+
+namespace Core { extern std::atomic<u64> g_nx2_present_count; }
 
 namespace Vulkan {
 
@@ -290,7 +291,6 @@ RasterizerVulkan::RasterizerVulkan(Core::Frontend::EmuWindow& emu_window_, Tegra
 }
 
 RasterizerVulkan::~RasterizerVulkan() {
-    VideoCommon::GpuSplit::Get().SetIdleHook(nullptr, nullptr);
     // The final submit invalidates the tracked flags, which live in a channel that is gone by now.
     state_tracker.DetachChannel();
     scheduler.WaitWorker();
@@ -515,7 +515,7 @@ void RasterizerVulkan::PrepareDraw(bool is_indexed, Func&& draw_func, bool is_in
 
     {
         Profile::Scope scope{Profile::Zone::DynamicState};
-        UpdateDynamicStates();
+        UpdateDynamicStates(pipeline);
     }
 
     query_cache.NotifySegment(true);
@@ -673,8 +673,49 @@ void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
             return;
         }
     }
-    if (TryNx2IndirectReset(is_indexed, instance_count)) {
-        return;
+    // Pokopia's 2048x2048 shadow atlas holds two cascades side by side: the near one in the upper
+    // half, the far one in the lower half. Outside the house the far one takes ~1,050 of the
+    // frame's ~3,500 draws, and its shadows are mostly faded out where it is sampled: dropping its
+    // draws saves ~17% of the GPU thread with no visible change in town. Only draws whose viewport
+    // is exactly the lower half of a square depth-only target are dropped.
+    // EDEN_NX2_SHADOW_FAR=1 keeps them; =0 drops them for any title (experiments).
+    // EDEN_NX2_SHADOW_FAR_ALTERNATE=<n>: drop them only in every other window of n presents, to
+    // compare both in one run (same weather, time and place).
+    static const int far_shadow_mode = [] {
+        const char* const value = std::getenv("EDEN_NX2_SHADOW_FAR");
+        return value == nullptr ? -1 : (value[0] == '0' ? 0 : 1);
+    }();
+    static const u64 far_shadow_alternate = [] {
+        const char* const value = std::getenv("EDEN_NX2_SHADOW_FAR_ALTERNATE");
+        return value != nullptr ? std::strtoull(value, nullptr, 10) : 0ULL;
+    }();
+    constexpr u64 PokopiaProgramId = 0x0400A3A01EE4C000ULL;
+    const bool drop_far_shadows =
+        far_shadow_alternate != 0
+            ? (Core::g_nx2_present_count.load(std::memory_order_relaxed) / far_shadow_alternate) %
+                      2 ==
+                  1
+            : far_shadow_mode == 0 || (far_shadow_mode == -1 && program_id == PokopiaProgramId);
+    if (drop_far_shadows) {
+        const auto& regs = maxwell3d->regs;
+        const u32 size = regs.zeta_size.width;
+        if (regs.zeta_enable != 0 && size >= 1024 && size == regs.zeta_size.height) {
+            const u32 colors = regs.rt_control.count.Value();
+            bool color_written = false;
+            for (u32 i = 0; i < colors && i < 8; ++i) {
+                color_written |= regs.color_mask[i].raw != 0;
+            }
+            const auto& vt = regs.viewport_transform[0];
+            const float half_width = std::abs(vt.scale_x);
+            const float half_height = std::abs(vt.scale_y);
+            const float left = vt.translate_x - half_width;
+            const float top = vt.translate_y - half_height;
+            const float extent = static_cast<float>(size);
+            if (!color_written && left == 0.0f && top == extent / 2.0f &&
+                half_width * 2.0f == extent && half_height * 4.0f == extent) {
+                return;
+            }
+        }
     }
     TraceWindowTarget(*maxwell3d, *gpu_memory, is_indexed ? "draw-indexed" : "draw",
                       is_indexed ? maxwell3d->draw_manager.draw_state.index_buffer.count
@@ -1452,26 +1493,15 @@ void RasterizerVulkan::DispatchCompute() {
 
     const auto& qmd{kepler_compute->launch_description};
     auto indirect_address = kepler_compute->GetIndirectComputeAddress();
-    if (frame_dump.CapturingBuffers()) {
-        std::optional<std::array<u32, 3>> indirect_grid;
-        if (indirect_address) {
-            indirect_grid = std::array{gpu_memory->Read<u32>(*indirect_address),
-                                       gpu_memory->Read<u32>(*indirect_address + 4),
-                                       gpu_memory->Read<u32>(*indirect_address + 8)};
-        }
-        frame_dump.NoteLaunch(pipeline->ShaderHash(),
-                              {qmd.grid_dim_x, qmd.grid_dim_y, qmd.grid_dim_z},
-                              {qmd.block_dim_x, qmd.block_dim_y, qmd.block_dim_z},
-                              indirect_address, indirect_grid);
-    }
-    // Earlier writes must be visible to the dispatch, including its indirect arguments.
-    static constexpr VkMemoryBarrier READ_BARRIER{
-        .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-        .pNext = nullptr,
-        .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
-        .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
-    };
+    // Earlier writes must be visible to the dispatch, its indirect arguments included, and what it
+    // writes to the next render pass.
     const auto record_read_barrier = [this] {
+        static constexpr VkMemoryBarrier READ_BARRIER{
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+            .pNext = nullptr,
+            .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+        };
         scheduler.Record([](vk::CommandBuffer cmdbuf) {
             cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER,
                                    VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT |
@@ -1488,8 +1518,7 @@ void RasterizerVulkan::DispatchCompute() {
             buffer_cache.ObtainBuffer(*indirect_address, 12, sync_info, post_op);
         scheduler.RequestOutsideRenderPassOperationContext();
         record_read_barrier();
-        scheduler.TraceComputePipeline(pipeline->ShaderHash());
-        scheduler.Record([this, pipeline, indirect_buffer = buffer->Handle(),
+        scheduler.Record([pipeline, indirect_buffer = buffer->Handle(),
                           indirect_offset = offset](vk::CommandBuffer cmdbuf) {
             if (!pipeline->IsBound()) {
                 return;
@@ -1508,8 +1537,7 @@ void RasterizerVulkan::DispatchCompute() {
     }
     scheduler.RequestOutsideRenderPassOperationContext();
     record_read_barrier();
-    scheduler.TraceComputePipeline(pipeline->ShaderHash());
-    scheduler.Record([this, pipeline, dim, byte_addressed_shadow](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([pipeline, dim](vk::CommandBuffer cmdbuf) {
         if (!pipeline->IsBound()) {
             return;
         }
@@ -1622,7 +1650,11 @@ void RasterizerVulkan::FlushRegion(DAddr addr, u64 size, VideoCommon::CacheType 
 }
 
 bool RasterizerVulkan::MustFlushRegion(DAddr addr, u64 size, VideoCommon::CacheType which) {
-    if ((True(which & VideoCommon::CacheType::BufferCache))) {
+    // The split's front asks this before each macro DMA read, and the back holds the buffer
+    // cache's lock through each draw: pages the GPU never wrote need no look under it.
+    if (True(which & VideoCommon::CacheType::BufferCache) &&
+        (!Tegra::g_nx2_ampere.load(std::memory_order_relaxed) ||
+         Tegra::Nx2MayBeGpuWritten(addr, size))) {
         std::scoped_lock lock{buffer_cache.mutex};
         if (buffer_cache.IsRegionGpuModified(addr, size)) {
             return true;
@@ -1830,25 +1862,55 @@ void RasterizerVulkan::WaitForIdle() {
 
     query_cache.NotifyWFI();
 
-    if (device.IsMoltenVK() && scheduler.IsRenderPassActive()) {
-        scheduler.DeferFragmentBarrier();
-        fence_manager.SignalOrdering();
-        return;
-    }
+#ifdef _WIN32
+    const bool needs_memory_barrier = device.GetDriverID() == VK_DRIVER_ID_AMD_PROPRIETARY;
+#else
+    constexpr bool needs_memory_barrier = false;
+#endif
     scheduler.RequestOutsideRenderPassOperationContext();
-    scheduler.Record([event = *wfi_event, flags](vk::CommandBuffer cmdbuf) {
-        // TOP_OF_PIPE as the wait stage blocks nothing and an empty barrier list makes no writes
-        // visible: strict drivers (AMD) ran later draws against unfinished compute output.
+    scheduler.Record([flags](vk::CommandBuffer cmdbuf) {
+        // Later work waits for the earlier work and sees its writes.
         static constexpr VkMemoryBarrier WFI_BARRIER{
             .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
             .pNext = nullptr,
             .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
             .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
         };
-        cmdbuf.SetEvent(event, flags);
-        cmdbuf.WaitEvents(event, flags, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, WFI_BARRIER, {}, {});
+        cmdbuf.PipelineBarrier(flags, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, WFI_BARRIER);
     });
     fence_manager.SignalOrdering();
+}
+
+void RasterizerVulkan::Nx2Membar() {
+#ifdef _WIN32
+    if (device.GetDriverID() != VK_DRIVER_ID_AMD_PROPRIETARY) {
+        return;
+    }
+
+    VkPipelineStageFlags flags =
+        VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT |
+        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT |
+        VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
+        VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
+    if (device.IsExtTransformFeedbackSupported()) {
+        flags |= VK_PIPELINE_STAGE_TRANSFORM_FEEDBACK_BIT_EXT;
+    }
+
+    query_cache.NotifyWFI();
+    scheduler.RequestOutsideRenderPassOperationContext();
+    scheduler.Record([event = *wfi_event, flags](vk::CommandBuffer cmdbuf) {
+        static constexpr VkMemoryBarrier memory_barrier{
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+            .pNext = nullptr,
+            .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT,
+            .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
+        };
+        cmdbuf.SetEvent(event, flags);
+        cmdbuf.WaitEvents(event, flags, flags, memory_barrier, {}, {});
+    });
+    fence_manager.SignalOrdering();
+#endif
 }
 
 void RasterizerVulkan::FragmentBarrier() {
@@ -2373,7 +2435,7 @@ bool AccelerateDMA::BufferToImage(const Tegra::DMA::ImageCopy& copy_info,
     return DmaBufferImageCopy<true>(copy_info, buffer_operand, image_operand);
 }
 
-void RasterizerVulkan::UpdateDynamicStates() {
+void RasterizerVulkan::UpdateDynamicStates(GraphicsPipeline* draw_pipeline) {
     auto& regs = maxwell3d->regs;
     auto& flags = maxwell3d->dirty.flags;
     const auto topology = maxwell3d->draw_manager.draw_state.topology;
@@ -2451,7 +2513,10 @@ void RasterizerVulkan::UpdateDynamicStates() {
     }
 
     if (device.IsExtVertexInputDynamicStateSupported()) {
-        if (auto* gp = pipeline_cache.CurrentGraphicsPipeline(); gp && gp->HasDynamicVertexInput()) {
+        // A draw passes the pipeline it looked up: a second lookup was ~2.5% of the back thread.
+        GraphicsPipeline* const gp =
+            draw_pipeline != nullptr ? draw_pipeline : pipeline_cache.CurrentGraphicsPipeline();
+        if (gp && gp->HasDynamicVertexInput()) {
             UpdateVertexInput(regs);
         }
     }

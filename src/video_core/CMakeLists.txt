@@ -52,6 +52,7 @@ add_library(video_core STATIC
     engines/fermi_2d.h
     engines/kepler_compute.cpp
     engines/kepler_compute.h
+    engines/native_upscale.h
     engines/kepler_memory.cpp
     engines/kepler_memory.h
     engines/maxwell_3d.cpp
@@ -171,7 +172,6 @@ add_library(video_core STATIC
     renderer_vulkan/pipeline_build.h
     renderer_vulkan/pipeline_helper.h
     renderer_vulkan/pipeline_optimization.h
-    renderer_vulkan/pipeline_shader_emission.h
     renderer_vulkan/pipeline_statistics.cpp
     renderer_vulkan/pipeline_statistics.h
     renderer_vulkan/renderer_vulkan.h
@@ -215,6 +215,7 @@ add_library(video_core STATIC
     renderer_vulkan/vk_present_manager.h
     renderer_vulkan/vk_query_cache.cpp
     renderer_vulkan/vk_query_cache.h
+    renderer_vulkan/vk_query_copy.h
     renderer_vulkan/vk_rasterizer.cpp
     renderer_vulkan/vk_rasterizer.h
     renderer_vulkan/submission_policy.h
@@ -288,6 +289,7 @@ add_library(video_core STATIC
     texture_cache/image_view_base.h
     texture_cache/image_view_info.cpp
     texture_cache/image_view_info.h
+    texture_cache/memory_limits.h
     texture_cache/render_targets.h
     texture_cache/samples_helper.h
     texture_cache/texture_cache.cpp

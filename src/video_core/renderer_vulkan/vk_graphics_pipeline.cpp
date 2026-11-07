@@ -436,16 +436,18 @@ bool GraphicsPipeline::ConfigureImpl(bool is_indexed) {
         }
         const auto& cbufs{maxwell3d->state.shader_stages[stage].const_buffers};
         const auto read_handle{[&](const auto& desc, u32 index) {
-            if (desc.handle_program != ~0U) {
-                // Read by the shader from a storage buffer: computed for this draw.
-                return TexturePair(VideoCommon::EvaluateTextureHandle(
-                                       info, desc.handle_program, *gpu_memory,
-                                       [&](u32 cbuf) -> GPUVAddr {
-                                           return cbuf < cbufs.size() && cbufs[cbuf].enabled
-                                                      ? cbufs[cbuf].address
-                                                      : GPUVAddr{};
-                                       }),
-                                   via_header_index);
+            if constexpr (std::is_same_v<decltype(desc), const Shader::TextureDescriptor&>) {
+                if (desc.handle_program != ~0U) {
+                    // Read by the shader from a storage buffer: computed for this draw.
+                    return TexturePair(VideoCommon::EvaluateTextureHandle(
+                                           info, desc.handle_program, *gpu_memory,
+                                           [&](u32 cbuf) -> GPUVAddr {
+                                               return cbuf < cbufs.size() && cbufs[cbuf].enabled
+                                                          ? cbufs[cbuf].address
+                                                          : GPUVAddr{};
+                                           }),
+                                       via_header_index);
+                }
             }
             ASSERT(cbufs[desc.cbuf_index].enabled);
             const u32 index_offset{index << desc.size_shift};
@@ -1141,10 +1143,9 @@ void GraphicsPipeline::MakePipeline(VkRenderPass render_pass) {
         };
         dynamic_states.insert(dynamic_states.end(), extended.begin(), extended.end());
 
-        // VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE_EXT
-        if (!key.state.dynamic_vertex_input) {
-            dynamic_states.push_back(VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE_EXT);
-        }
+        // Buffer binding sets strides with vkCmdBindVertexBuffers2 even when vertex input
+        // is dynamic. Both states must be enabled; the last setter supplies the stride.
+        dynamic_states.push_back(VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE_EXT);
     }
 
     // VK_DYNAMIC_STATE_VERTEX_INPUT_EXT
@@ -1264,30 +1265,33 @@ void GraphicsPipeline::MakePipeline(VkRenderPass render_pass) {
         flags |= VK_PIPELINE_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
     }
     // EDEN_NX2_AMD_SAFE_COMPILE_GRAPHICS=1: on AMD's proprietary driver, graphics pipelines are
-    // built without driver optimizations. Opt-in experiment for Ocarina of Time's crash inside
-    // vkCreateGraphicsPipelines around the Deku Tree (Eglantine #618: amdvlk64.dll access
-    // violation on one fragment shader, RDNA1/2/4); GPU time may go up.
+    // built without driver optimizations.
     static const bool safe_graphics = [] {
         const char* const value = std::getenv("EDEN_NX2_AMD_SAFE_COMPILE_GRAPHICS");
         return value != nullptr && value[0] == '1';
     }();
-    // Two RX 6000 PCs on AMD's 2.0.353 driver died inside vkCreateGraphicsPipelines while these
-    // Ocarina fragment shaders compiled (all four were in flight both times). Like the large
-    // compute shaders, they are built without optimizations under EDEN_NX2_AMD_SAFE_COMPILE's rule:
-    // drivers older than 2.0.388 by default, any AMD proprietary driver with =1, never with =0.
-    static constexpr std::array<u64, 4> CRASHING_FRAGMENTS{
-        0x6c85c9f06e1d689bULL, 0x3d513889e2913d1cULL, 0x3c2193d0166610b3ULL, 0x4e54644c03577013ULL};
+    // Fragment and graphics shaders that crash or stall for seconds on AMD proprietary drivers
+    // (crashing: 6c85c9f06e1d689b, 3d513889e2913d1c, 3c2193d0166610b3, 4e54644c03577013;
+    // in-game GPU thread stalls 1.2-1.7s: c62f1efe14cbfb7a, 8a0bd7fa60387348, cf86ddafdaccdb74).
+    static constexpr std::array<u64, 7> CRASHING_OR_STALLING_GRAPHICS{
+        0x6c85c9f06e1d689bULL, 0x3d513889e2913d1cULL, 0x3c2193d0166610b3ULL, 0x4e54644c03577013ULL,
+        0xc62f1efe14cbfb7aULL, 0x8a0bd7fa60387348ULL, 0xcf86ddafdaccdb74ULL,
+    };
     static const int safe_mode = [] {
         const char* const value = std::getenv("EDEN_NX2_AMD_SAFE_COMPILE");
         return value == nullptr || value[0] == '\0' ? -1 : (value[0] == '0' ? 0 : 1);
     }();
     const bool amd_proprietary = device.GetDriverID() == VK_DRIVER_ID_AMD_PROPRIETARY;
-    const bool crashing_fragment =
-        amd_proprietary && safe_mode != 0 &&
-        (safe_mode == 1 || device.GetDriverVersion() < VK_MAKE_API_VERSION(0, 2, 0, 388)) &&
-        std::ranges::find(CRASHING_FRAGMENTS, key.unique_hashes[Maxwell::MaxShaderProgram - 1]) !=
-            CRASHING_FRAGMENTS.end();
-    const bool unoptimized = amd_proprietary && (safe_graphics || crashing_fragment);
+    bool is_stalling_shader = false;
+    if (amd_proprietary && safe_mode != 0) {
+        for (const u64 hash : key.unique_hashes) {
+            if (hash != 0 && std::ranges::find(CRASHING_OR_STALLING_GRAPHICS, hash) != CRASHING_OR_STALLING_GRAPHICS.end()) {
+                is_stalling_shader = true;
+                break;
+            }
+        }
+    }
+    const bool unoptimized = amd_proprietary && (safe_graphics || is_stalling_shader);
     if (unoptimized) {
         flags |= VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
     }

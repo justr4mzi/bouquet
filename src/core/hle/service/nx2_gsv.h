@@ -3,6 +3,17 @@
 
 #pragma once
 
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <cstdlib>
+
+// Time of the last large movie frame the Switch 2 video decoder output (EDEN_MKW_MOVIE_UNPACED).
+inline std::atomic<std::int64_t>& Nx2MkwMovieFrameClock() {
+    static std::atomic<std::int64_t> clock{0};
+    return clock;
+}
+
 #include <algorithm>
 #include <array>
 #include <thread>
@@ -1682,6 +1693,7 @@ public:
             {111, &INx2Vi2Session::StubReplyZeroed, "Unknown111"},
             {112, &INx2Vi2Session::StubReplyZeroed, "Unknown112"},
             {113, &INx2Vi2Session::StubReplyZeroed, "Unknown113"},
+            {201, &INx2Vi2Session::StubReplyZeroed, "Unknown201"},
             {202, &INx2Vi2Session::StubReplyZeroed, "Unknown202"},
             {230, &INx2Vi2Session::StubReplyZeroed, "Unknown230"},
             {231, &INx2Vi2Session::StubReplyZeroed, "Unknown231"},
@@ -1714,6 +1726,7 @@ public:
     }
 
     ~INx2Vi2Session() override {
+        m_fps_logger.PrintSessionSummary();
         // The vsync callback may be running on the HostTiming thread: empty its event list under
         // its lock first (it holds the state, not this session), then close the events.
         {
@@ -1879,6 +1892,104 @@ private:
         u32 presents{}, ran_ahead{};
         std::chrono::steady_clock::time_point last_present{};
     } m_stats{};
+    struct FpsLogger {
+        static bool Enabled() {
+            static const bool enabled = [] {
+                const char* val = std::getenv("EDEN_FPS_LOG");
+                return val == nullptr || val[0] != '0';
+            }();
+            return enabled;
+        }
+
+        std::chrono::steady_clock::time_point session_start{};
+        std::chrono::steady_clock::time_point last_report{};
+        std::chrono::steady_clock::time_point last_present{};
+        std::vector<double> window_frametimes;
+        std::vector<double> session_frametimes;
+        size_t presents_count = 0;
+
+        void OnPresent(std::chrono::steady_clock::time_point now) {
+            if (!Enabled()) {
+                return;
+            }
+            ++presents_count;
+            if (session_start == std::chrono::steady_clock::time_point{}) {
+                session_start = now;
+                last_report = now;
+                last_present = now;
+                return;
+            }
+            const double dt_ms =
+                std::chrono::duration<double, std::milli>(now - last_present).count();
+            last_present = now;
+            if (dt_ms > 0.0 && dt_ms < 1000.0) {
+                window_frametimes.push_back(dt_ms);
+                session_frametimes.push_back(dt_ms);
+            }
+            const auto elapsed =
+                std::chrono::duration_cast<std::chrono::seconds>(now - last_report).count();
+            if (elapsed >= 5 && !window_frametimes.empty()) {
+                PrintWindow();
+                window_frametimes.clear();
+                last_report = now;
+            }
+        }
+
+        void PrintWindow() {
+            if (window_frametimes.empty()) {
+                return;
+            }
+            double sum = 0.0;
+            double min_dt = 1e9;
+            double max_dt = 0.0;
+            for (double dt : window_frametimes) {
+                sum += dt;
+                min_dt = (std::min)(min_dt, dt);
+                max_dt = (std::max)(max_dt, dt);
+            }
+            const double avg_frametime = sum / static_cast<double>(window_frametimes.size());
+            const double avg_fps = avg_frametime > 0.0 ? 1000.0 / avg_frametime : 0.0;
+            const double min_fps = max_dt > 0.0 ? 1000.0 / max_dt : 0.0;
+            const double max_fps = min_dt > 0.0 ? 1000.0 / min_dt : 0.0;
+
+            std::vector<double> sorted = window_frametimes;
+            std::sort(sorted.begin(), sorted.end());
+            const size_t p99_idx = static_cast<size_t>(sorted.size() * 0.99);
+            const double p99_dt = sorted[(std::min)(p99_idx, sorted.size() - 1)];
+            const double low_1pct = p99_dt > 0.0 ? 1000.0 / p99_dt : 0.0;
+
+            LOG_INFO(Service, "FPS avg={:.1f} min={:.1f} max={:.1f} 1%low={:.1f} frametime_avg={:.2f}ms",
+                     avg_fps, min_fps, max_fps, low_1pct, avg_frametime);
+        }
+
+        void PrintSessionSummary() {
+            if (!Enabled() || session_frametimes.empty()) {
+                return;
+            }
+            double sum = 0.0;
+            double min_dt = 1e9;
+            double max_dt = 0.0;
+            for (double dt : session_frametimes) {
+                sum += dt;
+                min_dt = (std::min)(min_dt, dt);
+                max_dt = (std::max)(max_dt, dt);
+            }
+            const double avg_frametime = sum / static_cast<double>(session_frametimes.size());
+            const double avg_fps = avg_frametime > 0.0 ? 1000.0 / avg_frametime : 0.0;
+            const double min_fps = max_dt > 0.0 ? 1000.0 / max_dt : 0.0;
+            const double max_fps = min_dt > 0.0 ? 1000.0 / min_dt : 0.0;
+
+            std::vector<double> sorted = session_frametimes;
+            std::sort(sorted.begin(), sorted.end());
+            const size_t p99_idx = static_cast<size_t>(sorted.size() * 0.99);
+            const double p99_dt = sorted[(std::min)(p99_idx, sorted.size() - 1)];
+            const double low_1pct = p99_dt > 0.0 ? 1000.0 / p99_dt : 0.0;
+
+            LOG_INFO(Service,
+                     "FPS SESSION SUMMARY: presents={} avg={:.1f} min={:.1f} max={:.1f} 1%low={:.1f}",
+                     presents_count, avg_fps, min_fps, max_fps, low_1pct);
+        }
+    } m_fps_logger{};
     u32 m_previous_fence_id{~0U}; // none yet (WaitForFrame ignores ids >= 192)
     u32 m_previous_fence_value{};
 
@@ -1917,32 +2028,34 @@ private:
             m_frame_trace.sleep_actual_ms = 0;
             m_frame_trace.deadline_reset = false;
         }
+        // EDEN_MKW_MOVIE_UNPACED=1: no present pacing while a large (>= 1920 wide) movie plays.
+        // The pacing sleep starves Mario Kart World's movie player: its 2560x1440 cup intros ran
+        // at ~70% speed with stuttering sound (~35% with the game's 30 FPS mode).
+        static const bool mkw_movie_unpaced = [] {
+            const char* v = std::getenv("EDEN_MKW_MOVIE_UNPACED");
+            return v == nullptr || v[0] != '0';
+        }();
+        if (mkw_movie_unpaced) {
+            const auto mkw_last = Nx2MkwMovieFrameClock().load(std::memory_order_relaxed);
+            const auto mkw_now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (mkw_last != 0 && mkw_now - mkw_last < 250'000'000) {
+                m_next_vblank = std::chrono::steady_clock::now();
+                return;
+            }
+        }
         static const u32 forced_interval = [] {
             const char* value = std::getenv("EDEN_NX2_SWAP_INTERVAL");
             return value ? static_cast<u32>(std::strtoul(value, nullptr, 10)) : 0U;
         }();
+        const auto* const process = system.ApplicationProcess();
+        // The present can arrive from a service context whose current process is not the game,
+        // and the loader patched the application process: asking for the current one meant the
+        // title never matched, so mkw_dynamic_fps silently did nothing.
         const bool mkw_dynamic =
             process != nullptr && process->GetProgramId() == Settings::MarioKartWorldProgramId &&
             process->IsMkwDynamicFpsPatchApplied() && Settings::values.mkw_dynamic_fps.GetValue();
-        // EDEN_NX2_SWAP_STABLE=<presents> (from Orchid, after Selevet): honour an interval above 1
-        // only once the game has kept it that long. Mario Kart World flips between 1 and 2 every
-        // few frames (its own timing on a VRR display); held to two vblanks on each 2 it fell from
-        // ~40 to 20-30 fps for Selevet. Mario Kart World waits 120 presents by default, as in
-        // Selevet; other titles honour every interval at once unless the switch is set.
-        static const char* const stable_env = std::getenv("EDEN_NX2_SWAP_STABLE");
-        const u32 stable_presents =
-            stable_env != nullptr ? static_cast<u32>(std::strtoul(stable_env, nullptr, 10))
-            : (process != nullptr && process->GetProgramId() == Settings::MarioKartWorldProgramId)
-                ? 120U
-                : 0U;
-        const bool changed = timing != std::exchange(m_swap_word, timing);
-        if (changed) {
-            m_swap_stable = 0;
-        } else if (m_swap_stable < stable_presents) {
-            ++m_swap_stable;
-        }
-        u32 swap_interval =
-            m_swap_stable >= stable_presents ? std::clamp<u32>(timing >> 16, 1, 4) : 1U;
+        u32 swap_interval = std::clamp<u32>(timing >> 16, 1, 4);
         if (mkw_dynamic) {
             swap_interval = 1;
         }
@@ -1950,13 +2063,24 @@ private:
         // the 2 or 3 vblanks it asked for kept it at 20-30 fps. Pace it to every vblank instead
         // (from ZendNevs's fork). EDEN_NX2_PACE_ONE=0 keeps the interval it asks for.
         static const char* const pace_one_env = std::getenv("EDEN_NX2_PACE_ONE");
-        if (process != nullptr && process->GetProgramId() == 0x040074A01BF12000ULL &&
+        static const bool dk_30fps_env = [] { const char* v = std::getenv("EDEN_NX2_DK_30FPS"); return v != nullptr && v[0] != '0'; }(); if (process != nullptr && process->GetProgramId() == 0x040074A01BF12000ULL && (Settings::values.dk_30fps.GetValue() || dk_30fps_env)) { swap_interval = 2; } else if (process != nullptr && process->GetProgramId() == 0x040074A01BF12000ULL &&
             Settings::values.dk_dynamic_fps.GetValue() &&
             !(pace_one_env != nullptr && pace_one_env[0] == '0')) {
             swap_interval = 1;
         }
         if (forced_interval != 0) {
             swap_interval = forced_interval;
+        }
+        // Hortensia: Mario Kart World requests interval 2 (30 fps) when dynamic fps is off,
+        // locking the frame rate to 30 fps even when the GPU can easily render 45-60 fps.
+        // Uncap to interval 1 by default for Mario Kart World unless EDEN_NX2_MKW_SWAP_INTERVAL is set.
+        const bool is_mkw = process != nullptr && process->GetProgramId() == Settings::MarioKartWorldProgramId;
+        if (is_mkw && forced_interval == 0) {
+            static const u32 mkw_interval = [] {
+                const char* value = std::getenv("EDEN_NX2_MKW_SWAP_INTERVAL");
+                return value ? static_cast<u32>(std::strtoul(value, nullptr, 10)) : 1U;
+            }();
+            swap_interval = mkw_interval;
         }
         const u32 refresh_rate = (timing & 0xffff) >= 30 && (timing & 0xffff) <= 240 ? timing & 0xffff : 60;
         if (trace) {
@@ -2000,6 +2124,8 @@ private:
                     std::chrono::steady_clock::now() - sleep_start).count();
             }
         }
+        m_next_vblank += interval;
+        m_fps_logger.OnPresent(now);
     }
 
     /// Waits until the fence is reached. With `unless_gpu_waits`, gives up after a few ms once a
@@ -2642,6 +2768,11 @@ private:
     static constexpr u32 NoSyncpoint = ~0U;
     static constexpr size_t MaxDecodedAhead = 2; // decoded frames held while no image is free
     static constexpr u32 HostSyncpoints = 192;   // Tegra::Host1x::SyncpointManager
+    // Movie pacing (see DropOvertakenFrames): a longer gap between acquires is a pause, a longer
+    // lag a jump in the stream; both restart the clock instead of dropping frames.
+    static constexpr s64 PauseGap = 1'000'000;   // us
+    static constexpr s64 MaxCatchUp = 3'000'000; // us
+    static constexpr u32 MaxDroppedInARow = 30;
 
     void Log(HLERequestContext& ctx, std::string_view what) {
         const auto* w = ctx.CommandBuffer();
@@ -2724,6 +2855,7 @@ private:
             m_codec = std::move(codec);
             m_width = w[5];
             m_height = w[6];
+            m_clock_offset.reset();
         }
         if (!m_worker.joinable()) {
             m_worker = std::thread{[this] { DecodeLoop(); }};
@@ -2884,7 +3016,7 @@ private:
             m_inputs.Clear();
             m_flush = true;
             m_stream_ended = false;
-            m_end_queued = false;
+            m_clock_offset.reset();
             m_ready->room.store(true, std::memory_order_relaxed);
             // Only Stop: Bananza flushes (8) after its movies end and treats every completed
             // fence as a frame to acquire.
@@ -2909,8 +3041,80 @@ private:
                          m_decoded_frames, m_frames_out, m_stream_ended, m_end_queued);
             }
             CompleteHandedFences();
+            m_clock_offset.reset();
         }
         TipcReplyWords(ctx, {});
+    }
+
+    static bool PacingEnabled() {
+        // EDEN_NX2_VDEC_PACE=0: hand out every decoded frame, however late.
+        static const bool enabled = [] {
+            const char* value = std::getenv("EDEN_NX2_VDEC_PACE");
+            return value == nullptr || value[0] != '0';
+        }();
+        return enabled;
+    }
+
+    static s64 HostTimeUs() {
+        return std::chrono::duration_cast<std::chrono::microseconds>(
+                   std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    }
+
+    // Starts or corrects the movie clock from a frame the client just acquired (m_mutex held).
+    // The clock never runs behind a frame the client already shows.
+    void AnchorClock(u64 pts) {
+        const s64 now = HostTimeUs();
+        const s64 offset = now - static_cast<s64>(pts);
+        if (!m_clock_offset || now - m_last_acquire > PauseGap || pts < m_last_acquired_pts ||
+            offset < *m_clock_offset || offset - *m_clock_offset > MaxCatchUp) {
+            m_clock_offset = offset;
+        }
+        m_last_acquire = now;
+        m_last_acquired_pts = pts;
+    }
+
+    // The pts the movie's audio has reached, if the client shows frames yet (m_mutex held).
+    std::optional<u64> DuePts() {
+        if (!m_clock_offset) {
+            return std::nullopt;
+        }
+        const s64 now = HostTimeUs();
+        const s64 due = now - *m_clock_offset;
+        // Nothing acquired for a while: paused; the next acquire restarts the clock.
+        if (due < 0 || now - m_last_acquire > PauseGap) {
+            return std::nullopt;
+        }
+        return static_cast<u64>(due);
+    }
+
+    // Games such as Ocarina of Time show one decoded frame per frame they draw and never skip
+    // one, while the movie's audio plays in real time: below the movie's frame rate the picture
+    // falls further behind the sound. Drop decoded frames a later frame has already overtaken
+    // (m_mutex held). Returns true when the only frame left is late and more input is queued:
+    // decode on before filling an image.
+    bool DropOvertakenFrames() {
+        if (!PacingEnabled() || m_decoded.empty()) {
+            return false;
+        }
+        const auto due = DuePts();
+        if (!due) {
+            m_dropped_in_a_row = 0;
+            return false;
+        }
+        while (m_decoded.size() >= 2 && m_dropped_in_a_row < MaxDroppedInARow) {
+            const Decoded& front = m_decoded[0];
+            const Decoded& next = m_decoded[1];
+            if (front.end || !front.picture || next.pts <= front.pts || next.pts > *due) {
+                break;
+            }
+            m_decoded.pop_front();
+            ++m_frames_dropped;
+            ++m_dropped_in_a_row;
+        }
+        const Decoded& front = m_decoded.front();
+        return m_decoded.size() == 1 && !m_inputs.empty() && !front.end &&
+               m_dropped_in_a_row < MaxDroppedInARow && front.pts + m_frame_interval < *due;
     }
 
     // Advances the decoder's syncpoint to the last value handed out (m_mutex held).
@@ -2939,6 +3143,7 @@ private:
             if (!m_outputs.empty()) {
                 output = m_outputs.front();
                 m_outputs.pop_front();
+                AnchorClock(output->pts);
             }
         }
         if (!output) {
@@ -2982,6 +3187,8 @@ private:
             if (m_flush) {
                 m_flush = false;
                 m_decoded.clear();
+                m_last_decoded_pts = 0;
+                m_dropped_in_a_row = 0;
                 if (decoder) {
                     lk.unlock();
                     decoder->Reset();
@@ -2989,7 +3196,8 @@ private:
                 }
                 continue;
             }
-            if (!m_decoded.empty() && !m_free.empty()) {
+            if (!m_decoded.empty() && !m_free.empty() && !DropOvertakenFrames()) {
+                m_dropped_in_a_row = 0;
                 Decoded frame = std::move(m_decoded.front());
                 m_decoded.pop_front();
                 const u32 image = m_free.front();
@@ -2997,6 +3205,10 @@ private:
                 std::optional<Fence> fence;
                 if (const auto it = m_release_fences.find(image); it != m_release_fences.end()) {
                     fence = it->second;
+                if (m_width >= 1920) {
+                    Nx2MkwMovieFrameClock().store(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch()).count(), std::memory_order_relaxed);
+                }
                     m_release_fences.erase(it);
                 }
                 lk.unlock();
@@ -3020,9 +3232,10 @@ private:
                 }
                 ++m_frames_out;
                 if (m_frames_out == 1 || (m_frames_out % 600) == 0 || frame.end) {
-                    LOG_INFO(Service, "{} frame {} ({}x{}, pts {} us{}) in image {}",
+                    LOG_INFO(Service,
+                             "{} frame {} ({}x{}, pts {} us{}) in image {}, {} late dropped",
                              GetServiceName(), m_frames_out, width, height, frame.pts,
-                             frame.end ? ", end of stream" : "", image);
+                             frame.end ? ", end of stream" : "", image, m_frames_dropped);
                 }
                 continue;
             }
@@ -3068,6 +3281,10 @@ private:
             }
             for (auto& picture : pictures) {
                 const u64 pts = picture.pts;
+                if (pts > m_last_decoded_pts && pts - m_last_decoded_pts <= 100'000) {
+                    m_frame_interval = pts - m_last_decoded_pts;
+                }
+                m_last_decoded_pts = pts;
                 m_decoded.push_back({std::move(picture), pts, false});
             }
             if (input.end) {
@@ -3262,8 +3479,14 @@ private:
     u32 m_height{};
     u32 m_handed{}; ///< Output images handed out (registered or released) so far
     u64 m_frames_out{};
-    u64 m_decoded_frames{};
-    Nx2VideoInputQueue m_inputs;
+    u64 m_frames_dropped{};
+    std::optional<s64> m_clock_offset; ///< Host time minus pts (us) of the frames the client shows
+    s64 m_last_acquire{};              ///< Host time (us) of the client's last acquire
+    u64 m_last_acquired_pts{};
+    u64 m_frame_interval{16667}; ///< us, from consecutive decoded frames
+    u64 m_last_decoded_pts{};
+    u32 m_dropped_in_a_row{};
+    std::deque<Input> m_inputs;
     std::deque<Decoded> m_decoded;     ///< Waiting for a free output image
     std::deque<u32> m_free;            ///< Output images, in the order the client acquires them
     std::map<u32, Fence> m_release_fences;

@@ -21,12 +21,14 @@ inline void SetMarioKartWorldRecommendedSettings(Values& settings, bool global) 
     session(settings.gpu_accuracy, GpuAccuracy::Low);
     session(settings.use_asynchronous_shaders, true);
     session(settings.astc_recompression, AstcRecompression::Bc3);
-    session(settings.vram_usage_mode, VramUsageMode::Conservative);
+    session(settings.vram_usage_mode, VramUsageMode::Aggressive);
     session(settings.use_reactive_flushing, false);
-    session(settings.vsync_mode, VSyncMode::FifoRelaxed);
-    session(settings.use_docked_mode, ConsoleMode::Handheld);
+    session(settings.vsync_mode, VSyncMode::Fifo);
+    session(settings.use_docked_mode, ConsoleMode::Docked);
     session(settings.scaling_filter, ScalingFilter::Bilinear);
     session(settings.anti_aliasing, AntiAliasing::Fxaa);
+    session(settings.frame_gen, false);
+    session(settings.mkw_dynamic_fps, false);
 }
 
 inline bool ApplyMarioKartWorldPreset(Values& settings, u64 program_id, bool accepted) {
@@ -115,26 +117,21 @@ inline std::string ApplyHortensiaSmartPreset(Values& settings, u64 program_id, G
     const auto resolution = integrated ? ResolutionSetup::Res1_2X : ResolutionSetup::Res1X;
     switch (program_id) {
     case MarioKartWorldProgramId:
-        // Lichii's recommended Mario Kart World settings, plus SmileyTatsu's dynamic FPS.
         SetMarioKartWorldRecommendedSettings(settings, false);
         session(settings.resolution_setup, resolution);
-        session(settings.mkw_dynamic_fps, true);
-        // Selevet's tuned Mario Kart World settings (55.5 fps median at 1x on a Ryzen 5 5500 and
-        // an RTX 3050): Unsafe CPU and DMA accuracy, Immediate GPU fences, no memory operation
-        // syncs.
         session(settings.cpu_accuracy, CpuAccuracy::Unsafe);
         session(settings.dma_accuracy, DmaAccuracy::Unsafe);
-        session(settings.gpu_fence_behavior, GpuFenceBehavior::Immediate);
+        session(settings.gpu_fence_behavior, GpuFenceBehavior::Default);
         session(settings.sync_memory_operations, false);
-        if (!integrated) {
-            // Selevet: BC3 recompression darkened the track's ground; discrete GPUs have the
-            // memory for uncompressed ASTC.
-            session(settings.astc_recompression, AstcRecompression::Uncompressed);
-        }
-        return integrated ? "Mario Kart World: Lichii's recommended settings, dynamic FPS, half "
-                            "resolution"
-                          : "Mario Kart World: Lichii's recommended settings, dynamic FPS, "
-                            "uncompressed ASTC";
+        session(settings.astc_recompression, AstcRecompression::Bc3);
+        session(settings.async_presentation, true);
+        session(settings.vram_usage_mode, VramUsageMode::Aggressive);
+        session(settings.vsync_mode, VSyncMode::Fifo);
+        session(settings.use_docked_mode, ConsoleMode::Docked);
+        session(settings.frame_gen, false);
+        session(settings.mkw_dynamic_fps, false);
+        return integrated ? "Mario Kart World: Hortensia optimized settings (TV mode, half resolution)"
+                          : "Mario Kart World: Hortensia optimized settings (TV mode, VSync Fifo, dynamic FPS off)";
     case OcarinaOfTimeProgramId:
         session(settings.renderer_backend, RendererBackend::Vulkan);
         session(settings.resolution_setup, resolution);
@@ -167,7 +164,6 @@ inline std::string ApplyHortensiaSmartPreset(Values& settings, u64 program_id, G
         if (!CurrentProgramIsSwitch2()) {
             return {};
         }
-        // Any other Switch 2 title (Pokemon Pokopia and others).
         session(settings.renderer_backend, RendererBackend::Vulkan);
         session(settings.use_asynchronous_shaders, true);
         if (integrated) {

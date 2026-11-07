@@ -282,12 +282,16 @@ const ShaderInfo* ShaderCache::ComputeShader() {
             throw;
         }
     }
-    // Check both warm and cold shader paths, before selecting a disk-cached pipeline.
-    // EDEN_NX2_DLSS_REPLACEMENT=native retains the native network for comparisons.
-    if (kepler_compute->IsNativeMode() && shader->lowered_native &&
-        DlssContract::IsFastFusionCandidate(program_id,
-                                            shader->lowered_native->native_program_key)) {
-        kepler_compute->TraceDlssContract(shader->lowered_native->native_program_key);
+    if (kepler_compute->IsNativeMode() && IsRejected(*cpu_shader_addr)) {
+        return nullptr;
+    }
+    try {
+        RethrowIfRejected(*cpu_shader_addr);
+        ComputeEnvironment env{*kepler_compute, *gpu_memory, program_base, qmd.program_start};
+        return MakeShaderInfo(env, *cpu_shader_addr);
+    } catch (const Shader::Exception&) {
+        RememberRejection(*cpu_shader_addr);
+        throw;
     }
     if (kepler_compute->IsNativeMode() && shader->lowered_native &&
         kepler_compute->ProcessGameDlss(program_id, shader->lowered_native->native_program_key)) {
@@ -310,6 +314,9 @@ bool ShaderCache::IsRejected(VAddr addr) {
 
 void ShaderCache::RememberRejection(VAddr addr) {
     std::scoped_lock lock{rejected_mutex};
+    if (rejected_native.contains(addr)) {
+        return;
+    }
     rejected_native.emplace(addr, std::current_exception());
     rejected_lowest.store((std::min)(rejected_lowest.load(std::memory_order_relaxed), addr),
                           std::memory_order_relaxed);

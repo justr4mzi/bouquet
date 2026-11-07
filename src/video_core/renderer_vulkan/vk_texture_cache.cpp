@@ -1268,6 +1268,15 @@ StagingBufferRef TextureCacheRuntime::UploadStagingBuffer(size_t size, bool defe
     return staging_buffer_pool.Request(size, MemoryUsage::Upload, deferred);
 }
 
+void TextureCacheRuntime::DeferGuestRead(u8* dst, Tegra::MaxwellDeviceMemoryManager& memory,
+                                         DAddr address, size_t size) {
+    // Runs when the worker records this chunk, before its commands are submitted: the copies
+    // recorded after it read the staging memory only once the GPU executes them.
+    scheduler.Record([dst, memory = &memory, address, size](vk::CommandBuffer) {
+        memory->ReadBlockUnsafe(address, dst, size);
+    });
+}
+
 StagingBufferRef TextureCacheRuntime::DownloadStagingBuffer(size_t size, bool deferred) {
     return staging_buffer_pool.Request(size, MemoryUsage::Download, deferred);
 }
@@ -2275,9 +2284,13 @@ void TextureCacheRuntime::BlitImage(Framebuffer* dst_framebuffer, ImageView& dst
     const VkImage src_image = src.ImageHandle();
     const VkImageSubresourceLayers dst_layers = MakeSubresourceLayers(&dst);
     const VkImageSubresourceLayers src_layers = MakeSubresourceLayers(&src);
+    // A blit inside one image (a mip chain, say) keeps it in GENERAL: moving the whole image to
+    // TRANSFER_DST_OPTIMAL would leave the source levels in another layout than the blit reads.
+    const VkImageLayout dst_layout =
+        src_image == dst_image ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     scheduler.RequestOutsideRenderPassOperationContext();
     scheduler.Record([filter, dst_region, src_region, dst_image, src_image, dst_layers, src_layers,
-                      aspect_mask, is_resolve](vk::CommandBuffer cmdbuf) {
+                      aspect_mask, is_resolve, dst_layout](vk::CommandBuffer cmdbuf) {
         const std::array read_barriers{
             VkImageMemoryBarrier{
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -2307,7 +2320,7 @@ void TextureCacheRuntime::BlitImage(Framebuffer* dst_framebuffer, ImageView& dst
                                  VK_ACCESS_TRANSFER_WRITE_BIT,
                 .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
                 .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-                .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .newLayout = dst_layout,
                 .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .image = dst_image,
@@ -2328,7 +2341,7 @@ void TextureCacheRuntime::BlitImage(Framebuffer* dst_framebuffer, ImageView& dst
                              VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
                              VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
                              VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
-            .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .oldLayout = dst_layout,
             .newLayout = VK_IMAGE_LAYOUT_GENERAL,
             .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
             .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
@@ -2344,14 +2357,13 @@ void TextureCacheRuntime::BlitImage(Framebuffer* dst_framebuffer, ImageView& dst
         cmdbuf.PipelineBarrier(vk::PIPELINE_STAGE_GRAPHICS_COMPUTE_TRANSFER, VK_PIPELINE_STAGE_TRANSFER_BIT,
                        0, nullptr, nullptr, read_barriers);
         if (is_resolve) {
-            cmdbuf.ResolveImage(src_image, VK_IMAGE_LAYOUT_GENERAL, dst_image,
-                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            cmdbuf.ResolveImage(src_image, VK_IMAGE_LAYOUT_GENERAL, dst_image, dst_layout,
                                 MakeImageResolve(dst_region, src_region, dst_layers, src_layers));
         } else {
             const bool is_linear = filter == Fermi2D::Filter::Bilinear;
             const VkFilter vk_filter = is_linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
             cmdbuf.BlitImage(
-                src_image, VK_IMAGE_LAYOUT_GENERAL, dst_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                src_image, VK_IMAGE_LAYOUT_GENERAL, dst_image, dst_layout,
                 MakeImageBlit(dst_region, src_region, dst_layers, src_layers), vk_filter);
         }
         cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, vk::PIPELINE_STAGE_GRAPHICS_COMPUTE,
@@ -2839,28 +2851,45 @@ void TextureCacheRuntime::ReleaseMsaaScratchImage(VkImage image) {
     }
 }
 
-void TextureCacheRuntime::TickFrame() {
-    while (!pending_byte_addressed_shadows.empty() &&
-           scheduler.IsFree(pending_byte_addressed_shadows.front().tick)) {
-        pending_byte_addressed_shadows.pop_front();
+namespace {
+// Finished decode images wait for the next texture of their shape, up to this much memory.
+constexpr u64 MaxFreeTranscodeBytes = u64{256} << 20;
+
+bool EnvNotZero(const char* name) {
+    const char* value = std::getenv(name);
+    return value == nullptr || value[0] != '0';
+}
+
+template <typename T>
+u64 TranscodeBytes(const T& t) {
+    u64 bytes{};
+    for (u32 level = 0; level < t.levels; ++level) {
+        bytes += u64{(std::max)(t.width >> level, 1U)} * (std::max)(t.height >> level, 1U) * 4;
     }
-    static constexpr u32 MAX_UNUSED_SCRATCH_FRAMES = 60;
-    // Finished decode images wait for the next texture of their shape, up to this much memory.
-    static constexpr u64 MaxFreeTranscodeBytes = u64{256} << 20;
-    const auto decode_bytes = [](const PendingTranscode& t) {
-        u64 bytes{};
-        for (u32 level = 0; level < t.levels; ++level) {
-            bytes += u64{(std::max)(t.width >> level, 1U)} * (std::max)(t.height >> level, 1U) * 4;
-        }
-        return bytes * t.layers;
-    };
+    return bytes * t.layers;
+}
+} // Anonymous namespace
+
+void TextureCacheRuntime::RecycleFinishedTranscodes() {
+    if (pending_transcodes.empty() || !scheduler.IsFree(pending_transcodes.front().tick)) {
+        return;
+    }
+    // EDEN_NX2_ASTC_POOL_V2=0 drops a finished image that does not fit instead of evicting the
+    // least recently used free one.
+    static const bool evict_lru = EnvNotZero("EDEN_NX2_ASTC_POOL_V2");
     u64 free_bytes{};
     for (const PendingTranscode& t : free_transcodes) {
-        free_bytes += decode_bytes(t);
+        free_bytes += TranscodeBytes(t);
     }
     while (!pending_transcodes.empty() && scheduler.IsFree(pending_transcodes.front().tick)) {
         PendingTranscode& done = pending_transcodes.front();
-        const u64 bytes = decode_bytes(done);
+        const u64 bytes = TranscodeBytes(done);
+        while (evict_lru && free_bytes + bytes > MaxFreeTranscodeBytes && !free_transcodes.empty()) {
+            const auto oldest = std::ranges::min_element(
+                free_transcodes, {}, [](const PendingTranscode& t) { return t.last_use; });
+            free_bytes -= TranscodeBytes(*oldest);
+            free_transcodes.erase(oldest);
+        }
         if (free_bytes + bytes <= MaxFreeTranscodeBytes) {
             done.unused_frames = 0;
             free_bytes += bytes;
@@ -2868,6 +2897,11 @@ void TextureCacheRuntime::TickFrame() {
         }
         pending_transcodes.pop_front();
     }
+}
+
+void TextureCacheRuntime::TickFrame() {
+    static constexpr u32 MAX_UNUSED_SCRATCH_FRAMES = 60;
+    RecycleFinishedTranscodes();
     std::erase_if(free_transcodes, [](PendingTranscode& t) {
         return ++t.unused_frames > MAX_UNUSED_SCRATCH_FRAMES;
     });
@@ -3436,6 +3470,16 @@ bool Image::InitSparseLayers() {
         u64{granularity.width} * granularity.height * block_bytes == tile) {
         s.tile_width *= block_width;
         s.tile_height *= block_height;
+    }
+    // A block that is not one sparse page of the image can't be bound by (AMD reported 65549 x
+    // 339860304 for title 1's RGBA8 terrain arrays on an RX 9070 XT).
+    if (s.tile_width < block_width || s.tile_height < block_height ||
+        u64{s.tile_width / block_width} * (s.tile_height / block_height) * block_bytes != tile) {
+        LOG_WARNING(Render_Vulkan,
+                    "Sparse layered image {:#x}: driver block {}x{} is not a {} byte page; not "
+                    "using sparse layers",
+                    gpu_addr, granularity.width, granularity.height, tile);
+        return false;
     }
     const u32 tail_lod = (std::min)(it->imageMipTailFirstLod, s.levels);
     VkDeviceSize bytes = 0;
@@ -4932,17 +4976,46 @@ void TextureCacheRuntime::TranscodeAstcToBcn(
     const u32 height = info.size.height;
     const u32 levels = static_cast<u32>(info.resources.levels);
     const u32 layers = static_cast<u32>(info.resources.layers);
-    // The BC encoder declares layout(rgba8). Identical byte layout is not enough:
-    // its storage image view must have the matching R8G8B8A8_UNORM format.
-    constexpr VkFormat DecodeFormat = VK_FORMAT_R8G8B8A8_UNORM;
+    constexpr VkFormat DecodeFormat = VK_FORMAT_A8B8G8R8_UNORM_PACK32;
+    // The decode image only has to be at least as large as the texture: the decode writes by
+    // texel position and the encode reads only the texture's own texels. Rounding its size up
+    // lets textures of nearly the same size share one.
+    static const bool bucket_scratch = EnvNotZero("EDEN_NX2_ASTC_SCRATCH_BUCKET");
+    constexpr u32 ScratchAlignment = 64;
+    const u32 scratch_width = bucket_scratch ? Common::AlignUp(width, ScratchAlignment) : width;
+    const u32 scratch_height = bucket_scratch ? Common::AlignUp(height, ScratchAlignment) : height;
     // A decode image of the same shape the GPU is done with: title 1's title screen decodes
     // dozens of textures a frame, mostly of a few shapes. Making one took 263 us; from VMA's
     // shared blocks 90 us, but freeing them there left ~1 GB of those blocks unused.
-    const auto reusable = std::ranges::find_if(free_transcodes, [&](const PendingTranscode& t) {
-        return t.width == width && t.height == height && t.levels == levels && t.layers == layers;
-    });
+    // EDEN_NX2_ASTC_POOL_V2=0 only recycles finished images once a frame; EDEN_NX2_ASTC_POOL_FIT=0
+    // only reuses images of exactly the size asked for. A larger image works because the decode
+    // writes by texel position and the encode clamps to the texture's own size.
+    static const bool recycle_on_lookup = EnvNotZero("EDEN_NX2_ASTC_POOL_V2");
+    static const bool allow_larger = EnvNotZero("EDEN_NX2_ASTC_POOL_FIT");
+    if (recycle_on_lookup) {
+        RecycleFinishedTranscodes();
+    }
+    const auto fits = [&](const PendingTranscode& t) {
+        if (t.levels != levels || t.layers != layers) {
+            return false;
+        }
+        if (t.width == scratch_width && t.height == scratch_height) {
+            return true;
+        }
+        return allow_larger && t.width >= scratch_width && t.height >= scratch_height &&
+               t.width <= scratch_width * 2 && t.height <= scratch_height * 2;
+    };
+    // The smallest image that fits wastes the least.
+    const auto reusable = std::ranges::min_element(
+        free_transcodes, [&](const PendingTranscode& a, const PendingTranscode& b) {
+            const bool fits_a = fits(a), fits_b = fits(b);
+            if (fits_a != fits_b) {
+                return fits_a;
+            }
+            return u64{a.width} * a.height < u64{b.width} * b.height;
+        });
     PendingTranscode pending;
-    if (reusable != free_transcodes.end()) {
+    if (reusable != free_transcodes.end() && fits(*reusable)) {
         pending = std::move(*reusable);
         free_transcodes.erase(reusable);
     } else {
@@ -4954,7 +5027,7 @@ void TextureCacheRuntime::TranscodeAstcToBcn(
                 .flags = 0,
                 .imageType = VK_IMAGE_TYPE_2D,
                 .format = DecodeFormat,
-                .extent = {width, height, 1},
+                .extent = {scratch_width, scratch_height, 1},
                 .mipLevels = levels,
                 .arrayLayers = layers,
                 .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -4966,17 +5039,21 @@ void TextureCacheRuntime::TranscodeAstcToBcn(
                 .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
             }, true),
             .views = {},
-            .width = width,
-            .height = height,
+            .width = scratch_width,
+            .height = scratch_height,
             .levels = levels,
             .layers = layers,
             .unused_frames = 0,
+            .last_use = 0,
         };
         for (u32 level = 0; level < levels; ++level) {
             pending.views.push_back(
                 MakeStorageView(device.GetLogical(), level, *pending.image, DecodeFormat));
         }
     }
+    // The decode image is only read by the encode that follows, so the decode needs no submit of
+    // its own: both go in the same one. EDEN_NX2_ASTC_ONE_SUBMIT=0 submits after the decode.
+    static const bool one_submit = EnvNotZero("EDEN_NX2_ASTC_ONE_SUBMIT");
     astc_decoder_pass->AssembleInto(
         info, 0, image.guest_size_bytes,
         ASTCDecoderPass::Target{
@@ -4984,7 +5061,7 @@ void TextureCacheRuntime::TranscodeAstcToBcn(
             .aspect_mask = VK_IMAGE_ASPECT_COLOR_BIT,
             .initialized = false,
             .level_view = [&pending](s32 level) { return *pending.views[level]; },
-            .wait = true,
+            .wait = !one_submit,
         },
         map, swizzles);
 
@@ -5033,6 +5110,7 @@ void TextureCacheRuntime::TranscodeAstcToBcn(
     });
     image.UploadMemory(output.buffer, output.offset, copies);
     pending.tick = scheduler.CurrentTick();
+    pending.last_use = ++transcode_use_counter;
     pending_transcodes.push_back(std::move(pending));
 }
 

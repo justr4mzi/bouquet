@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 
 #include "common/alignment.h"
 #include "common/assert.h"
@@ -158,7 +157,6 @@ GPUVAddr MemoryManager::PageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr de
         std::unique_lock<std::mutex> lock(guard);
         kind_map.Map(gpu_addr, gpu_addr + size, kind);
     }
-    UpdateContinuousRuns(gpu_addr, size);
     map_serial.fetch_add(1, std::memory_order_release);
     return gpu_addr;
 }
@@ -215,7 +213,6 @@ GPUVAddr MemoryManager::BigPageTableOp(GPUVAddr gpu_addr, [[maybe_unused]] DAddr
         std::unique_lock<std::mutex> lock(guard);
         kind_map.Map(gpu_addr, gpu_addr + size, kind);
     }
-    UpdateContinuousRuns(gpu_addr, size);
     map_serial.fetch_add(1, std::memory_order_release);
     return gpu_addr;
 }
@@ -512,9 +509,6 @@ void MemoryManager::WriteBlockImpl(GPUVAddr gpu_dest_addr, const void* src_buffe
     };
     auto mapped_normal = [&](std::size_t page_index, std::size_t offset, std::size_t copy_amount) {
         const DAddr dev_addr_base = (DAddr(page_table[page_index]) << cpu_page_bits) + offset;
-        if (!unsafe) {
-            rasterizer->PrepareRegionWrite(dev_addr_base, copy_amount, which);
-        }
         if (u8* physical = memory.GetPointer<u8>(dev_addr_base)) [[likely]] {
             std::memcpy(physical, src_buffer, copy_amount);
         }
@@ -526,9 +520,6 @@ void MemoryManager::WriteBlockImpl(GPUVAddr gpu_dest_addr, const void* src_buffe
     };
     auto mapped_big = [&](std::size_t page_index, std::size_t offset, std::size_t copy_amount) {
         const DAddr dev_addr_base = (DAddr(big_page_table_dev[page_index]) << cpu_page_bits) + offset;
-        if (!unsafe) {
-            rasterizer->PrepareRegionWrite(dev_addr_base, copy_amount, which);
-        }
         u8* const physical = IsBigPageContinuous(page_index) ? memory.GetPointer<u8>(dev_addr_base)
                                                              : nullptr;
         if (physical != nullptr) [[likely]] {
@@ -629,117 +620,26 @@ bool MemoryManager::IsMemoryDirty(GPUVAddr gpu_addr, size_t size,
 }
 
 size_t MemoryManager::MaxContinuousRange(GPUVAddr gpu_addr, size_t size) const {
-    // Native storage buffers ask this for up to 8 MiB on each bind, ~90,000 times a second in
-    // Ocarina's Kokiri village: answer from the runs kept at map time instead of walking pages.
-    size_t result = 0;
-    if (IsWithinGPUAddressRange(gpu_addr) && size <= address_space_size - gpu_addr) {
-        const auto& runs = CurrentSnapshot().runs;
-        const auto it = std::upper_bound(
-            runs.begin(), runs.end(), gpu_addr,
-            [](GPUVAddr address, const MappingSnapshot::Run& run) { return address < run.begin; });
-        if (it != runs.begin() && gpu_addr < std::prev(it)->end) {
-            result = (std::min<size_t>)(size, std::prev(it)->end - gpu_addr);
-        }
-    }
-    if (VideoCommon::Nx2Perf::Verify()) {
-        const size_t expected = MaxContinuousRangeUncached(gpu_addr, size);
-        static std::atomic<u32> logged{};
-        if (expected != result && logged.fetch_add(1, std::memory_order_relaxed) < 64) {
-            LOG_ERROR(HW_GPU,
-                      "Nx2Perf mapping runs: MaxContinuousRange({:#x}, {:#x}) = {:#x}, walk {:#x}",
-                      gpu_addr, size, result, expected);
-        }
-        return expected;
-    }
-    return result;
-}
-
-void MemoryManager::UpdateContinuousRuns(GPUVAddr gpu_addr, size_t size) {
-    // Every entry the operation set lies in these big pages; the walk reads nothing else there.
-    const GPUVAddr begin = gpu_addr & ~big_page_mask;
-    const GPUVAddr end =
-        (std::min)(Common::AlignUp(gpu_addr + size, big_page_size), address_space_size);
-    if (size == 0 || begin >= end) {
-        return;
-    }
-    std::vector<std::pair<GPUVAddr, ContinuousRun>> rebuilt;
-    const auto add = [&](GPUVAddr address, u64 length, DAddr device_addr) {
-        if (!rebuilt.empty()) {
-            auto& [run_begin, run] = rebuilt.back();
-            if (run.end == address && run.device_addr + (run.end - run_begin) == device_addr) {
-                run.end += length;
-                return;
-            }
-        }
-        rebuilt.push_back({address, {address + length, device_addr}});
-    };
-    std::scoped_lock lock{runs_guard};
-    // Runs that overlap or touch [begin, end) are cut at its edges and merged again.
-    auto it = continuous_runs.lower_bound(begin);
-    if (it != continuous_runs.begin() && std::prev(it)->second.end >= begin) {
-        --it;
-    }
-    if (it != continuous_runs.end() && it->first < begin) {
-        add(it->first, begin - it->first, it->second.device_addr);
-    }
-    std::optional<std::pair<GPUVAddr, ContinuousRun>> tail;
-    while (it != continuous_runs.end() && it->first <= end) {
-        if (it->second.end > end) {
-            tail = {end, {it->second.end, it->second.device_addr + (end - it->first)}};
-        }
-        it = continuous_runs.erase(it);
-    }
-    for (GPUVAddr page = begin; page < end; page += big_page_size) {
-        const EntryType big_entry = GetEntry(page, true);
-        if (big_entry == EntryType::Mapped) {
-            add(page, big_page_size,
-                DAddr(big_page_table_dev[PageEntryIndex(page, true)]) << cpu_page_bits);
-        } else if (big_entry == EntryType::Free) {
-            for (GPUVAddr small = page; small < page + big_page_size; small += page_size) {
-                if (GetEntry(small, false) == EntryType::Mapped) {
-                    add(small, page_size,
-                        DAddr(page_table[PageEntryIndex(small, false)]) << cpu_page_bits);
-                }
-            }
-        }
-    }
-    if (tail) {
-        add(tail->first, tail->second.end - tail->first, tail->second.device_addr);
-    }
-    for (const auto& run : rebuilt) {
-        continuous_runs.insert(continuous_runs.end(), run);
-    }
-}
-
-const MemoryManager::MappingSnapshot& MemoryManager::CurrentSnapshot() const {
-    struct View {
+    // Native storage buffers ask this for up to 8 MiB on each bind, ~70,000 times a second in
+    // title 1's forest (17% of the GPU thread walking pages): keep answers per thread until the
+    // page table changes.
+    struct Entry {
         size_t owner;
+        GPUVAddr gpu_addr;
+        size_t size;
         u64 serial;
-        std::shared_ptr<const MappingSnapshot> snapshot;
+        size_t result;
     };
-    thread_local std::array<View, 4> views{};
-    View& view = views[unique_identifier % views.size()];
+    thread_local std::array<Entry, 64> cache{};
     const u64 serial = map_serial.load(std::memory_order_acquire);
-    if (view.owner == unique_identifier + 1 && view.serial == serial) {
-        return *view.snapshot;
+    Entry& entry = cache[((gpu_addr ^ size) * 0x9E3779B97F4A7C15ULL) >> 58];
+    if (entry.owner == unique_identifier + 1 && entry.gpu_addr == gpu_addr && entry.size == size &&
+        entry.serial == serial) {
+        return entry.result;
     }
-    std::scoped_lock lock{runs_guard};
-    if (!snapshot || snapshot_serial != serial) {
-        auto next = std::make_shared<MappingSnapshot>();
-        next->runs.reserve(continuous_runs.size());
-        for (const auto& [begin, run] : continuous_runs) {
-            next->runs.push_back({begin, run.end});
-        }
-        {
-            std::unique_lock<std::mutex> kind_lock(guard);
-            kind_map.ForEachRange(
-                [&](s64 start, PTEKind kind) { next->kinds.emplace_back(start, kind); });
-        }
-        snapshot = std::move(next);
-        snapshot_serial = serial;
-    }
-    view = {unique_identifier + 1, serial, snapshot};
-    return *view.snapshot;
+    const size_t result = MaxContinuousRangeUncached(gpu_addr, size);
+    entry = {unique_identifier + 1, gpu_addr, size, serial, result};
+    return result;
 }
 
 size_t MemoryManager::MaxContinuousRangeUncached(GPUVAddr gpu_addr, size_t size) const {

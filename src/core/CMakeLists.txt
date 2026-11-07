@@ -1177,6 +1177,7 @@ add_library(core STATIC
     loader/nsp.h
     loader/nup.cpp
     loader/nup.h
+    loader/oot_icon_data.h
     loader/xci.cpp
     loader/xci.h
     memory.cpp

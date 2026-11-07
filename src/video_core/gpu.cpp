@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "common/assert.h"
+#include "common/logging.h"
 #include "common/settings.h"
 #include "common/settings_enums.h"
 #include "core/core.h"
@@ -46,17 +47,23 @@
 namespace Tegra {
 
 namespace {
-u64 GpuTimeDivisor() {
-    static const u64 divisor = [] {
-        const char* value = std::getenv("EDEN_NX2_GPU_TIME_DIV");
-        const u64 parsed = value ? std::strtoull(value, nullptr, 10) : 1;
-        if (parsed > 1) {
-            LOG_INFO(HW_GPU, "EDEN_NX2_GPU_TIME_DIV: GPU durations since each present / {}",
-                     parsed);
-        }
-        return parsed;
-    }();
-    return divisor;
+constexpr Settings::GpuClock EffectiveGpuClock(Settings::GpuClock clock, u64 program_id) {
+    constexpr u64 OcarinaOfTime = 0x0400486024DEC000ULL;
+    if (program_id == OcarinaOfTime && clock == Settings::GpuClock::Overclock) {
+        return Settings::GpuClock::Boost;
+    }
+    return clock;
+}
+
+constexpr u64 GpuClockMultiplier(Settings::GpuClock clock) {
+    switch (clock) {
+    case Settings::GpuClock::Boost:
+        return 256;
+    case Settings::GpuClock::Overclock:
+        return 512;
+    default:
+        return 1;
+    }
 }
 } // Anonymous namespace
 
@@ -98,6 +105,13 @@ struct GPU::Impl {
     }
 
     void InitChannel(Control::ChannelState& to_init, u64 program_id) {
+        if (program_id != 0 && program_id_for_clock.exchange(program_id) != program_id &&
+            EffectiveGpuClock(Settings::GpuClock::Overclock, program_id) !=
+                Settings::GpuClock::Overclock &&
+            Settings::values.gpu_clock.GetValue() == Settings::GpuClock::Overclock) {
+            LOG_WARNING(HW_GPU, "GPU Clocks is Overclock: this game uses Boost instead, as "
+                                "Overclock breaks its picture");
+        }
         to_init.Init(system, program_id);
         to_init.BindRasterizer(renderer->ReadRasterizer());
         renderer->ReadRasterizer()->InitializeChannel(to_init);
@@ -143,6 +157,7 @@ struct GPU::Impl {
         std::unique_lock lck{sync_request_mutex};
         const u64 fence = ++last_sync_fence;
         sync_requests.emplace_back(std::forward<Func>(action));
+        pending_sync_requests.fetch_add(1, std::memory_order_release);
         return fence;
     }
 
@@ -164,10 +179,17 @@ struct GPU::Impl {
 
     /// Tick pending requests within the GPU.
     void TickWork() {
+        // Called on every draw (0.7% of the split's back thread taking the mutex to find nothing).
+        // A request queued just after this check runs on the next tick, as one queued just after
+        // the mutex was released did.
+        if (pending_sync_requests.load(std::memory_order_acquire) == 0) {
+            return;
+        }
         std::unique_lock lck{sync_request_mutex};
         while (!sync_requests.empty()) {
             auto request = std::move(sync_requests.front());
             sync_requests.pop_front();
+            pending_sync_requests.fetch_sub(1, std::memory_order_relaxed);
             sync_request_mutex.unlock();
             request();
             current_sync_fence.fetch_add(1, std::memory_order_release);
@@ -177,14 +199,8 @@ struct GPU::Impl {
     }
 
     [[nodiscard]] u64 GetTicks() const {
-        const bool ampere = g_nx2_ampere.load(std::memory_order_relaxed);
-        const u64 ticks =
-            ReadGpuTimestamp(system.CoreTiming(), ampere, Settings::values.gpu_clock.GetValue());
-        if (!ampere) {
-            return ticks;
-        }
-        return DivideSinceAnchor(ticks, gpu_time_anchor.load(std::memory_order_relaxed),
-                                 GpuTimeDivisor());
+        const u64 gpu_tick = system.CoreTiming().GetGPUTicks();
+        return gpu_tick / GpuClockMultiplier(EffectiveGpuClock(Settings::values.gpu_clock.GetValue(), program_id_for_clock.load(std::memory_order_relaxed)));
     }
 
     void RendererFrameEndNotify() {
@@ -386,8 +402,11 @@ struct GPU::Impl {
     std::condition_variable sync_cv;
 
     std::list<std::function<void()>> sync_requests;
+    /// sync_requests.size(), read without the mutex: TickWork runs on every draw and the queue
+    /// is almost always empty.
+    std::atomic<u32> pending_sync_requests{};
     std::atomic<u64> current_sync_fence{};
-    std::atomic<u64> gpu_time_anchor{};
+    std::atomic<u64> program_id_for_clock{};
     u64 last_sync_fence{};
 
     VideoCommon::PendingMaps pending_maps;

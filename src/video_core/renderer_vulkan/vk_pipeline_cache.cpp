@@ -166,6 +166,29 @@ Shader::AttributeType AttributeType(const FixedPipelineState& state, size_t inde
     return Shader::AttributeType::Disabled;
 }
 
+// Switch 2 geometry shaders may write all 32 generic outputs next to Position and Layer: 133
+// components where Vulkan devices allow 128 (maxGeometryOutputComponents). AMD's Windows driver
+// closed the emulator compiling such a shader at the Mario Tennis Fever match start. Drop the
+// outputs the fragment shader never reads; skipped where it can't tell (legacy, indexed, XFB) and
+// for passthrough shaders the host runs natively (no IR writes the outputs there).
+void PruneUnreadGeometryOutputs(Shader::IR::Program& geometry, const Shader::IR::Program& fragment,
+                                const GraphicsPipelineCacheKey& key, bool native_passthrough) {
+    const Shader::Info& fs{fragment.info};
+    Shader::VaryingState& stores{geometry.info.stores};
+    if (fragment.stage != Shader::Stage::Fragment || key.state.xfb_enabled ||
+        (geometry.is_geometry_passthrough && native_passthrough) || fs.loads_indexed_attributes ||
+        fs.loads.Legacy() || stores.Legacy()) {
+        return;
+    }
+    for (size_t index = 0; index < Shader::IR::NUM_GENERICS; ++index) {
+        if (!fs.loads.Generic(index)) {
+            for (size_t element = 0; element < 4; ++element) {
+                stores.Set(Shader::IR::Attribute::Generic0X + index * 4 + element, false);
+            }
+        }
+    }
+}
+
 Shader::RuntimeInfo MakeRuntimeInfo(std::span<const Shader::IR::Program> programs,
                                     const GraphicsPipelineCacheKey& key,
                                     const Shader::IR::Program& program,
@@ -564,7 +587,13 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
                                        driver_id == VK_DRIVER_ID_MESA_TURNIP,
 
         .has_broken_spirv_clamp = driver_id == VK_DRIVER_ID_INTEL_PROPRIETARY_WINDOWS,
-        .has_broken_spirv_position_input = driver_id == VK_DRIVER_ID_QUALCOMM_PROPRIETARY,
+        .has_broken_spirv_position_input = driver_id == VK_DRIVER_ID_QUALCOMM_PROPRIETARY ||
+#ifdef _WIN32
+                                           driver_id == VK_DRIVER_ID_AMD_PROPRIETARY
+#else
+                                           false
+#endif
+                                           ,
         .has_broken_unsigned_image_offsets = false,
         .has_broken_signed_operations = false,
         .has_broken_fp16_float_controls = driver_id == VK_DRIVER_ID_NVIDIA_PROPRIETARY,
@@ -781,23 +810,132 @@ void PipelineCache::SaveUsedPipelines() {
     }
 }
 
+namespace {
+/// EDEN_NX2_PIPELINE_SKIP: unset or 1 skips lookups nothing changed for, 0 never does, verify looks
+/// up anyway and reports what skipping would have done.
+int PipelineSkipMode() noexcept {
+    static constinit std::atomic<int> mode{-1};
+    const int known = mode.load(std::memory_order_relaxed);
+    if (known >= 0) [[likely]] {
+        return known;
+    }
+    const char* const value = std::getenv("EDEN_NX2_PIPELINE_SKIP");
+    int parsed = 1;
+    if (value != nullptr && value[0] == '0') {
+        parsed = 0;
+    } else if (value != nullptr && (value[0] == 'v' || value[0] == 'V')) {
+        parsed = 2;
+    }
+    mode.store(parsed, std::memory_order_relaxed);
+    if (parsed != 1) {
+        LOG_INFO(Render_Vulkan, "EDEN_NX2_PIPELINE_SKIP: {}", parsed == 0 ? "off" : "verify");
+    }
+    return parsed;
+}
+} // Anonymous namespace
+
 GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
 
     if (!RefreshStages(graphics_key.unique_hashes)) {
         current_pipeline = nullptr;
+        pipeline_skip.valid = false;
         return nullptr;
     }
-    graphics_key.state.Refresh(*maxwell3d, dynamic_features);
-
-    if (current_pipeline) {
-        GraphicsPipeline* const next{current_pipeline->Next(graphics_key)};
-        if (next) {
-            current_pipeline = next;
-            current_pipeline->MarkUsed(frame_count);
-            return BuiltPipeline(current_pipeline);
-        }
+    // Most draws keep the previous draw's pipeline state (~90% of Pokopia's). While no register
+    // the key reads has changed, nor the stages, topology, engine hint or channel, the key is the
+    // one current_pipeline was found for, and re-reading the state and comparing keys finds it
+    // again: return it as Next() would.
+    const int skip_mode = PipelineSkipMode();
+    Tegra::Engines::Maxwell3D& maxwell = *maxwell3d;
+    const auto topology = maxwell.draw_manager.draw_state.topology;
+    const bool same_inputs = skip_mode != 0 && pipeline_skip.valid && current_pipeline != nullptr &&
+                             pipeline_skip.pipeline == current_pipeline &&
+                             pipeline_skip.maxwell3d == maxwell3d &&
+                             pipeline_skip.topology == topology &&
+                             pipeline_skip.engine_state == maxwell.engine_state &&
+                             pipeline_skip.unique_hashes == graphics_key.unique_hashes;
+    const bool unchanged = same_inputs && !maxwell.pipeline_state_dirty;
+    if (unchanged && skip_mode == 1) {
+        current_pipeline->MarkUsed(frame_count);
+        return BuiltPipeline(current_pipeline);
     }
-    return CurrentGraphicsPipelineSlowPath();
+    std::optional<GraphicsPipelineCacheKey> before;
+    if (skip_mode == 2) [[unlikely]] {
+        before.emplace(graphics_key);
+    }
+    const bool dirty_only = same_inputs && maxwell.pipeline_state_dirty;
+    maxwell.pipeline_state_dirty = false;
+    graphics_key.state.Refresh(maxwell, dynamic_features);
+    if (before) [[unlikely]] {
+        VerifyPipelineSkip(unchanged, dirty_only, maxwell.pipeline_dirty_method, *before);
+    }
+
+    GraphicsPipeline* const pipeline = [&]() -> GraphicsPipeline* {
+        if (current_pipeline) {
+            GraphicsPipeline* const next{current_pipeline->Next(graphics_key)};
+            if (next) {
+                current_pipeline = next;
+                current_pipeline->MarkUsed(frame_count);
+                return BuiltPipeline(current_pipeline);
+            }
+        }
+        return CurrentGraphicsPipelineSlowPath();
+    }();
+    pipeline_skip = PipelineSkip{
+        .maxwell3d = maxwell3d,
+        .pipeline = current_pipeline,
+        .unique_hashes = graphics_key.unique_hashes,
+        .topology = topology,
+        .engine_state = maxwell.engine_state,
+        .valid = current_pipeline != nullptr && current_pipeline->Key() == graphics_key,
+    };
+    return pipeline;
+}
+
+void PipelineCache::VerifyPipelineSkip(bool would_skip, bool dirty_only, u32 dirty_method,
+                                       const GraphicsPipelineCacheKey& before) {
+    auto& stats = pipeline_skip_stats;
+    ++stats.lookups;
+    const bool same = before == graphics_key;
+    if (would_skip) {
+        ++stats.would_skip;
+        if (!same) {
+            ++stats.mismatches;
+            if (stats.mismatches <= 16) {
+                const auto* const old_bytes = reinterpret_cast<const u8*>(&before.state);
+                const auto* const new_bytes = reinterpret_cast<const u8*>(&graphics_key.state);
+                size_t first = 0;
+                while (first < sizeof(FixedPipelineState) && old_bytes[first] == new_bytes[first]) {
+                    ++first;
+                }
+                LOG_ERROR(Render_Vulkan,
+                          "Pipeline skip would have kept a stale key: pipeline state differs "
+                          "from byte {:#x} (no pipeline register written since the last lookup)",
+                          first);
+            }
+        }
+    } else if (dirty_only && same) {
+        ++stats.false_dirty;
+        ++stats.false_dirty_methods[dirty_method];
+    }
+    if ((stats.lookups & 0x3ffff) != 0) {
+        return;
+    }
+    const auto pct = [&](u64 part) {
+        return 100.0 * static_cast<double>(part) / static_cast<double>(stats.lookups);
+    };
+    LOG_INFO(Render_Vulkan,
+             "Pipeline skip (verify): {} lookups, {:.1f}% would skip, {} mismatches, {:.1f}% "
+             "looked up only for a register that changed nothing",
+             stats.lookups, pct(stats.would_skip), stats.mismatches, pct(stats.false_dirty));
+    std::vector<std::pair<u32, u64>> methods(stats.false_dirty_methods.begin(),
+                                             stats.false_dirty_methods.end());
+    std::sort(methods.begin(), methods.end(),
+              [](const auto& a, const auto& b) { return a.second > b.second; });
+    for (size_t i = 0; i < methods.size() && i < 16; ++i) {
+        LOG_INFO(Render_Vulkan, "  register {:#06x} (method {:#x}): {:.1f}% of lookups",
+                 methods[i].first * 4, methods[i].first, pct(methods[i].second));
+    }
 }
 
 ComputePipeline* ComputePipelineCacheEntry::Get(bool native, GPUVAddr address,
@@ -952,11 +1090,8 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         }
 
         const u64 hash = key.Hash();
-        if (!disk_pipelines.insert(hash).second) {
-            return;
-        }
-        // Switch 2 titles stutter on pipelines built mid-game, so all of them are built at boot
-        // (from SmileyTatsu).
+        disk_pipelines.insert(hash);
+        // Switch 2 titles stutter on pipelines built mid-game, so all of them are built at boot.
         if (!PreloadAllPipelines() && !Settings::CurrentProgramIsSwitch2() &&
             (used_pipelines.empty() ? queued_graphics >= MaxPipelinesWithoutUsedList
                                     : !used_pipelines.contains(hash))) {
@@ -1277,6 +1412,13 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
             return nullptr;
         }
 
+        // Without VK_EXT_mesh_shader the driver cannot build a task/mesh pipeline; the draw is
+        // skipped (see the pipeline check in the rasterizer).
+        if ((env.ShaderStage() == Shader::Stage::Task || env.ShaderStage() == Shader::Stage::Mesh) &&
+            !device.IsExtMeshShaderSupported()) {
+            return nullptr;
+        }
+
         const u32 cfg_offset{static_cast<u32>(env.StartAddress() + sizeof(Shader::ProgramHeader))};
         Shader::Maxwell::Flow::CFG cfg(env, pools.flow_block, cfg_offset, index == 0);
         if (!uses_vertex_a || index != 1) {
@@ -1310,42 +1452,35 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
             layer_source_program = &programs[index];
         }
     }
-    // A tessellation pipeline the driver would refuse is skipped like a missing mesh pipeline:
-    // the draw is dropped (see the pipeline check in the rasterizer) instead of failing the build.
-    {
-        const Shader::IR::Program* control{};
-        const Shader::IR::Program* evaluation{};
-        for (size_t index = 0; index < Maxwell::MaxShaderProgram; ++index) {
-            if (key.unique_hashes[index] == 0) {
-                continue;
+#ifdef _WIN32
+    // AMD's Windows driver can crash when a geometry shader exports all generic locations.
+    if (device.GetDriverID() == VK_DRIVER_ID_AMD_PROPRIETARY && !key.xfb_enabled) {
+        constexpr size_t geometry_index = static_cast<size_t>(Maxwell::ShaderType::Geometry);
+        constexpr size_t fragment_index = static_cast<size_t>(Maxwell::ShaderType::Pixel);
+        if (key.unique_hashes[geometry_index] != 0 &&
+            key.unique_hashes[fragment_index] != 0) {
+            auto& geometry = programs[geometry_index];
+            const auto& fragment = programs[fragment_index];
+            size_t generic_outputs{};
+            for (size_t index = 0; index < Shader::IR::NUM_GENERICS; ++index) {
+                generic_outputs += geometry.info.stores.Generic(index) ? 1 : 0;
             }
-            if (programs[index].stage == Shader::Stage::TessellationControl) {
-                control = &programs[index];
-            } else if (programs[index].stage == Shader::Stage::TessellationEval) {
-                evaluation = &programs[index];
-            }
-        }
-        if (control != nullptr || evaluation != nullptr) {
-            const u32 max_patch_size = device.GetMaxTessellationPatchSize();
-            const char* reason = nullptr;
-            if (!device.IsTessellationSupported()) {
-                reason = "the device has no tessellation shaders";
-            } else if (control == nullptr || evaluation == nullptr) {
-                reason = "it has only one of the control and evaluation stages";
-            } else if (control->invocations == 0 || control->invocations > max_patch_size) {
-                reason = "the control shader's output vertex count is out of range";
-            }
-            if (reason != nullptr) {
-                LOG_WARNING(Render_Vulkan,
-                            "Skipping tessellation pipeline: {} (tcs={} tes={}, tcs output "
-                            "vertices {}, patch control points {}, device max patch size {})",
-                            reason, control != nullptr, evaluation != nullptr,
-                            control != nullptr ? control->invocations : 0,
-                            key.state.patch_control_points_minus_one.Value() + 1, max_patch_size);
-                return nullptr;
+            if (generic_outputs == Shader::IR::NUM_GENERICS &&
+                !geometry.info.stores.Legacy() && !fragment.info.loads.Legacy()) {
+                for (size_t index = 0; index < Shader::IR::NUM_GENERICS; ++index) {
+                    if (fragment.info.loads.Generic(index)) {
+                        continue;
+                    }
+                    for (size_t component = 0; component < 4; ++component) {
+                        geometry.info.stores.Set(Shader::IR::Attribute::Generic0X + index * 4 +
+                                                     component,
+                                                 false);
+                    }
+                }
             }
         }
     }
+#endif
     std::array<const Shader::Info*, Maxwell::MaxShaderStage> infos{};
     std::array<vk::ShaderModule, Maxwell::MaxShaderStage> modules;
     std::array<std::optional<Shader::RuntimeInfo>, Maxwell::MaxShaderStage> deferred_runtime_infos;
@@ -1369,16 +1504,26 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
 
         const auto runtime_info{MakeRuntimeInfo(programs, key, program, previous_stage, device)};
         ConvertLegacyToGeneric(program, runtime_info);
-        // From Orchid (after leadaenima/Lichii): on AMD graphics stages that can require 32-lane
-        // subgroups, dynamic-lane shuffles are emitted as a 32-lane broadcast loop.
-        Shader::Profile stage_profile{profile};
-        stage_profile.has_broken_spirv_dynamic_subgroup_shuffle =
-            device.NeedsGraphicsSubgroupShuffleWorkaround(MaxwellToVK::ShaderStage(program.stage));
-        if (emit_pools) {
-            deferred_runtime_infos[stage_index] = runtime_info;
-            deferred_profiles[stage_index] = stage_profile;
-            if (VideoCommon::Nx2Perf::Verify()) {
-                reference_spirv[stage_index] = EmitSPIRV(stage_profile, runtime_info, program, binding);
+        if (index == static_cast<size_t>(Maxwell::ShaderType::Geometry)) {
+            PruneUnreadGeometryOutputs(
+                program, programs[static_cast<size_t>(Maxwell::ShaderType::Pixel)], key,
+                device.IsNvGeometryShaderPassthroughSupported());
+        }
+        const std::vector<u32> code{EmitSPIRV(profile, runtime_info, program, binding)};
+        device.SaveShader(code);
+        modules[stage_index] = BuildShader(device, code);
+
+        // Text log + .spv dump. Text log is gated by gpu_log_level != Off; .spv dump
+        // is independent and gated only by gpu_log_shader_dumps.
+        const bool should_log = GPU::Logging::IsActive();
+        const bool should_dump = Settings::values.gpu_log_shader_dumps.GetValue();
+        if (should_log || should_dump) {
+            static constexpr std::array stage_names{"vertex", "tess_control", "tess_eval", "geometry", "fragment"};
+            const std::string shader_name = fmt::format("shader_{:016x}_{}", key.unique_hashes[index], stage_names[stage_index]);
+            if (should_log) {
+                const std::string shader_info = fmt::format("SPIR-V size: {} bytes, hash: {:016x}",
+                    code.size() * sizeof(u32), key.unique_hashes[index]);
+                GPU::Logging::GPULogger::GetInstance().LogShaderCompilation(shader_name, shader_info);
             }
         } else {
             const auto begin = std::chrono::steady_clock::now();

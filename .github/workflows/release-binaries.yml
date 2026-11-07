@@ -504,6 +504,8 @@ jobs:
             }
           }
           windeployqt --release --no-translations build/release/bin/hortensia.exe
+          if (Test-Path "dist/nx2_switches.txt") { Copy-Item "dist/nx2_switches.txt" "build/release/bin/" }
+          if (Test-Path "dist/nx2_switches_turbo.txt") { Copy-Item "dist/nx2_switches_turbo.txt" "build/release/bin/" }
 
       # A dynamic MinGW build is not portable on its own: windeployqt6 brings the Qt libraries and
       # plugins, then every non-system DLL the binaries and those plugins pull in gets copied next to

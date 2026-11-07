@@ -56,6 +56,7 @@ Maxwell3D::Maxwell3D(MemoryManager& memory_manager_)
 {
     dirty.flags.flip();
     InitializeRegisterDefaults();
+    InitializePipelineNeutralRegisters();
     execution_mask.reset();
     for (size_t i = 0; i < execution_mask.size(); i++)
         execution_mask[i] = IsMethodExecutable(u32(i));
@@ -64,6 +65,58 @@ Maxwell3D::Maxwell3D(MemoryManager& memory_manager_)
 }
 
 Maxwell3D::~Maxwell3D() = default;
+
+void Maxwell3D::InitializePipelineNeutralRegisters() {
+    auto& neutral = pipeline_neutral_registers;
+    const auto mark = [&neutral](size_t first, size_t count) {
+        for (size_t i = first; i < first + count && i < neutral.size(); ++i) {
+            neutral.set(i);
+        }
+    };
+#define NEUTRAL(field) mark(MAXWELL3D_REG_INDEX(field), sizeof(Regs::field) / sizeof(u32))
+    NEUTRAL(load_mme);
+    NEUTRAL(upload);
+    NEUTRAL(inline_data);
+    NEUTRAL(sync_info);
+    NEUTRAL(vertex_buffer);
+    NEUTRAL(invalidate_texture_data_cache);
+    NEUTRAL(vertex_id_base);
+    NEUTRAL(invalidate_sampler_cache);
+    NEUTRAL(inline_index_4x8);
+    NEUTRAL(global_base_vertex_index);
+    NEUTRAL(global_base_instance_index);
+    NEUTRAL(tex_sampler);
+    NEUTRAL(tex_header);
+    NEUTRAL(draw_inline_index);
+    NEUTRAL(inline_index_2x16);
+    // The topology a draw begins with is compared by the pipeline cache (DrawManager's state).
+    NEUTRAL(draw);
+    NEUTRAL(index_buffer);
+    NEUTRAL(index_buffer32_first);
+    NEUTRAL(index_buffer16_first);
+    NEUTRAL(index_buffer8_first);
+    NEUTRAL(index_buffer32_subsequent);
+    NEUTRAL(zpass_pixel_count_enable);
+    NEUTRAL(clear_surface);
+    NEUTRAL(report_semaphore);
+    NEUTRAL(vertex_stream_limits);
+    NEUTRAL(pipelines);
+    NEUTRAL(const_buffer);
+    NEUTRAL(bind_groups);
+    NEUTRAL(shadow_scratch);
+#undef NEUTRAL
+    // NVN2's vertex stream sizes (Regs::NativeVertexStreamSize), rewritten for most of Pokopia's
+    // draws: they size the vertex buffers only.
+    mark(0x600 / sizeof(u32), Regs::NumVertexArrays * 2);
+    // A vertex stream's address; its stride, enable and frequency are in the key.
+    for (size_t index = 0; index < Regs::NumVertexArrays; ++index) {
+        mark(MAXWELL3D_REG_INDEX(vertex_streams) + index * (sizeof(Regs::VertexStream) / sizeof(u32)) +
+                 offsetof(Regs::VertexStream, address_high) / sizeof(u32),
+             2);
+    }
+    mark(RootTables::SelectMethod, 1);
+    mark(RootTables::LoadMethod, 1);
+}
 
 void Maxwell3D::BindRasterizer(VideoCore::RasterizerInterface* rasterizer_) {
     rasterizer = rasterizer_;
@@ -360,6 +413,10 @@ void Maxwell3D::ProcessDirtyRegisters(u32 method, u32 argument) {
     regs.reg_array[method] = argument;
     for (auto const& table : dirty.tables)
         dirty.flags[table[method]] = true;
+    if (!pipeline_neutral_registers[method]) {
+        pipeline_state_dirty = true;
+        pipeline_dirty_method = method;
+    }
 }
 
 void Maxwell3D::ProcessMethodCall(u32 method, u32 argument, u32 nonshadow_argument, bool is_last_call) {
@@ -473,167 +530,9 @@ void Maxwell3D::TraceFirstMethodWrite(u32 method, u32 argument) {
 }
 
 void Maxwell3D::CallMethod(Core::System& system, u32 method, u32 method_argument, bool is_last_call) {
-    if (!fast_maxwell3d || executing_macro != 0 || method >= MacroRegistersStart ||
-        method == MAXWELL3D_REG_INDEX(shadow_ram_control)) {
-        return CallMethodSlow(system, method, method_argument, is_last_call);
+    if (front_macros && !VideoCommon::GpuSplit::OnBackThread()) [[unlikely]] {
+        FrontHandBack();
     }
-    if (VideoCommon::Nx2Perf::Verify()) {
-        return VerifyCallMethod(system, method, method_argument, is_last_call);
-    }
-    CallMethodFast(method, method_argument, is_last_call);
-}
-
-namespace {
-
-// Executable methods the draw manager does nothing for (ProcessDirtyRegisters is all they do).
-bool IsStoreOnlyExecutable(u32 method) {
-    switch (method) {
-    case MAXWELL3D_REG_INDEX(vertex_buffer.first):
-    case MAXWELL3D_REG_INDEX(vertex_buffer.count):
-    case MAXWELL3D_REG_INDEX(index_buffer.first):
-    case MAXWELL3D_REG_INDEX(topology_override):
-        return true;
-    default:
-        return false;
-    }
-}
-
-} // Anonymous namespace
-
-// CallMethodSlow without the checks that cannot apply (CallMethod): no macro collects parameters,
-// no write history, trace or profile, not a macro call or SET_SHADOW_RAM_CONTROL. The hot
-// executable methods go straight to their handler.
-void Maxwell3D::CallMethodFast(u32 method, u32 method_argument, bool is_last_call) {
-    const u32 argument = ProcessShadowRam(method, method_argument);
-    if (!execution_mask[method]) {
-        if (!SkipSameValueWrites() || regs.reg_array[method] != argument) {
-            ProcessDirtyRegisters(method, argument);
-        }
-        return;
-    }
-    ProcessDirtyRegisters(method, argument);
-    constexpr u32 cb_data = MAXWELL3D_REG_INDEX(const_buffer.buffer);
-    if (method - cb_data < 16) {
-        return ProcessCBData(argument);
-    }
-    switch (method) {
-    case MAXWELL3D_REG_INDEX(draw.begin):
-        return draw_manager.DrawBegin(*this);
-    case MAXWELL3D_REG_INDEX(draw.end):
-        return draw_manager.DrawEnd(*this);
-    case MAXWELL3D_REG_INDEX(vertex_buffer.first):
-    case MAXWELL3D_REG_INDEX(vertex_buffer.count):
-    case MAXWELL3D_REG_INDEX(index_buffer.first):
-    case MAXWELL3D_REG_INDEX(topology_override):
-        return;
-    case MAXWELL3D_REG_INDEX(bind_groups[0].raw_config):
-        return ProcessCBBind(0);
-    case MAXWELL3D_REG_INDEX(bind_groups[1].raw_config):
-        return ProcessCBBind(1);
-    case MAXWELL3D_REG_INDEX(bind_groups[2].raw_config):
-        return ProcessCBBind(2);
-    case MAXWELL3D_REG_INDEX(bind_groups[3].raw_config):
-        return ProcessCBBind(3);
-    case MAXWELL3D_REG_INDEX(bind_groups[4].raw_config):
-        return ProcessCBBind(4);
-    default:
-        return ProcessMethodCall(method, argument, method_argument, is_last_call);
-    }
-}
-
-void Maxwell3D::VerifyCallMethod(Core::System& system, u32 method, u32 method_argument,
-                                 bool is_last_call) {
-    // Only register writes can run twice: handlers draw, upload and bind, and a deferred draw
-    // ProcessDirtyRegisters may issue is a draw too.
-    if ((execution_mask[method] && !IsStoreOnlyExecutable(method)) ||
-        draw_manager.HasDeferredDraw()) {
-        return CallMethodSlow(system, method, method_argument, is_last_call);
-    }
-    const u32 reg = regs.reg_array[method];
-    const u32 shadow = shadow_state.reg_array[method];
-    const DirtyState::Flags flags = dirty.flags;
-    CallMethodFast(method, method_argument, is_last_call);
-    const u32 fast_reg = regs.reg_array[method];
-    const u32 fast_shadow = shadow_state.reg_array[method];
-    const DirtyState::Flags fast_flags = dirty.flags;
-    regs.reg_array[method] = reg;
-    shadow_state.reg_array[method] = shadow;
-    dirty.flags = flags;
-    CallMethodSlow(system, method, method_argument, is_last_call);
-    if (fast_reg == regs.reg_array[method] && fast_shadow == shadow_state.reg_array[method] &&
-        fast_flags == dirty.flags) {
-        return;
-    }
-    static std::atomic<u32> reports{};
-    if (reports.fetch_add(1, std::memory_order_relaxed) >= 64) {
-        return;
-    }
-    std::string flag_differences;
-    const DirtyState::Flags differing = fast_flags ^ dirty.flags;
-    for (size_t i = 0; i < differing.size(); ++i) {
-        if (differing[i]) {
-            flag_differences += fmt::format(" {}={}", i, fast_flags[i] ? 1 : 0);
-        }
-    }
-    LOG_ERROR(HW_GPU,
-              "Nx2Perf method: {:#x} = {:#x}: register {:#x} (old {:#x}), shadow {:#x} (old {:#x}), "
-              "fast dirty flags differ:{}",
-              method, method_argument, fast_reg, regs.reg_array[method], fast_shadow,
-              shadow_state.reg_array[method], flag_differences);
-}
-
-void Maxwell3D::CallConstBufferWords(Core::System& system, const u32* methods,
-                                     const u32* arguments, u32 count) {
-    const u32 offset = regs.const_buffer.offset;
-    const u64 bytes = u64{count} * sizeof(u32);
-    const GPUVAddr address = regs.const_buffer.Address();
-    // Keep per-word translation across device pages and per-word clipping at buffer limits.
-    if (!fast_maxwell3d || executing_macro != 0 || address == 0 ||
-        offset > regs.const_buffer.size || bytes > regs.const_buffer.size - offset ||
-        bytes > Core::DEVICE_PAGESIZE - ((address + offset) & Core::DEVICE_PAGEMASK)) {
-        for (u32 i = 0; i < count; ++i) {
-            CallMethod(system, methods[i], arguments[i], true);
-        }
-        return;
-    }
-    std::array<u32, 64> values;
-    const bool replay = shadow_state.shadow_ram_control == Regs::ShadowRamControl::Replay;
-    for (u32 i = 0; i < count; ++i) {
-        values[i] = replay ? shadow_state.reg_array[methods[i]] : arguments[i];
-    }
-    if (VideoCommon::Nx2Perf::Verify()) {
-        for (u32 i = 0; i < count; ++i) {
-            CallMethod(system, methods[i], arguments[i], true);
-        }
-        std::array<u32, 64> written;
-        const bool mapped = memory_manager.IsFullyMappedRange(address + offset, bytes);
-        if (mapped) {
-            memory_manager.ReadBlockUnsafe(address + offset, written.data(), bytes);
-        }
-        if (regs.const_buffer.offset != offset + bytes ||
-            (mapped && std::memcmp(written.data(), values.data(), bytes) != 0)) {
-            static std::atomic<u32> reports{};
-            if (reports.fetch_add(1, std::memory_order_relaxed) < 64) {
-                LOG_ERROR(HW_GPU,
-                          "Nx2Perf method: {} constant buffer words at {:#x}+{:#x}: offset {:#x}, "
-                          "expected {:#x}, memory {}",
-                          count, address, offset, regs.const_buffer.offset, offset + bytes,
-                          mapped && std::memcmp(written.data(), values.data(), bytes) != 0
-                              ? "differs"
-                              : "matches");
-            }
-        }
-        return;
-    }
-    // As CallMethodFast for each word: the first may issue a deferred draw, before any upload.
-    for (u32 i = 0; i < count; ++i) {
-        ProcessDirtyRegisters(methods[i], ProcessShadowRam(methods[i], arguments[i]));
-    }
-    memory_manager.WriteWordsCached(address + offset, values.data(), count);
-    regs.const_buffer.offset += static_cast<u32>(bytes);
-}
-
-void Maxwell3D::CallMethodSlow(Core::System& system, u32 method, u32 method_argument, bool is_last_call) {
     // It is an error to write to a register other than the current macro's ARG register before
     // it has finished execution.
     if (executing_macro != 0 && method != executing_macro + 1) {
@@ -705,6 +604,9 @@ void Maxwell3D::DumpRecentWrites(u32 method) {
 }
 
 void Maxwell3D::CallMultiMethod(Core::System& system, u32 method, const u32* base_start, u32 amount, u32 methods_pending) {
+    if (front_macros && !VideoCommon::GpuSplit::OnBackThread()) [[unlikely]] {
+        FrontHandBack();
+    }
     RecordWrite(method, amount ? base_start[0] : 0, amount, methods_pending);
     // Methods after 0xE00 are special, they're actually triggers for some microcode that was
     // uploaded to the GPU during initialization.
@@ -1110,6 +1012,17 @@ Maxwell3D::FrontState& Maxwell3D::Front(Core::System& system, VideoCommon::GpuSp
         front_macros = true;
     }
     return *front;
+}
+
+// The split stopped (the settings changed mid-game): the macros run here again, from where the
+// front left them. Front() copies the state again if it starts once more.
+void Maxwell3D::FrontHandBack() {
+    executing_macro = front->executing_macro;
+    macro_params = std::move(front->parameters);
+    regs.load_mme.instruction_ptr = front->regs[MAXWELL3D_REG_INDEX(load_mme.instruction_ptr)];
+    regs.load_mme.start_address_ptr = front->regs[MAXWELL3D_REG_INDEX(load_mme.start_address_ptr)];
+    front.reset();
+    front_macros = false;
 }
 
 void Maxwell3D::FrontWrite(VideoCommon::GpuSplit& split, FrontState& fs, u32 method,

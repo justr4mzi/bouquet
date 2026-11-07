@@ -27,7 +27,7 @@
 #include "video_core/guest_memory.h"
 #include "video_core/host1x/gpu_device_memory_manager.h"
 #include "video_core/texture_cache/image_view_base.h"
-#include "video_core/texture_cache/conversion.h"
+#include "video_core/texture_cache/memory_limits.h"
 #include "video_core/texture_cache/samples_helper.h"
 #include "video_core/texture_cache/texture_cache_base.h"
 #include "video_core/texture_cache/util.h"
@@ -74,7 +74,8 @@ TextureCache<P>::TextureCache(Runtime& runtime_, Tegra::MaxwellDeviceMemoryManag
     void(slot_samplers.insert(runtime, sampler_descriptor));
 
     if constexpr (HAS_DEVICE_MEMORY_INFO) {
-        const s64 device_local_memory = static_cast<s64>(runtime.GetDeviceLocalMemory());
+        device_memory_total = QueryDeviceMemory();
+        const s64 device_local_memory = static_cast<s64>(device_memory_total);
         const s64 min_spacing_expected = device_local_memory - 1_GiB;
         const s64 min_spacing_critical = device_local_memory - 512_MiB;
         const s64 mem_threshold = (std::min)(device_local_memory, TARGET_THRESHOLD);
@@ -256,11 +257,23 @@ void TextureCache<P>::RunGarbageCollector() {
 }
 
 template <class P>
+u64 TextureCache<P>::QueryDeviceMemory() {
+    if constexpr (requires { runtime.GetDeviceMemoryBudget(); }) {
+        const u64 budget = runtime.GetDeviceMemoryBudget();
+        if (budget > 2_GiB) {
+            return budget;
+        }
+    }
+    return runtime.GetDeviceLocalMemory();
+}
+
+template <class P>
 void TextureCache<P>::ApplyThresholdOverrides(bool log) {
-    // On every GPU: past what a frame needs, more device memory only keeps the textures of earlier
-    // scenes (title 1 filled 6.7 GB of an 8 GB card and draws its races in ~5 GB), so collect from
-    // MaxCriticalMemory on rather than near the card's budget.
-    critical_memory = (std::min)(critical_memory, MaxCriticalMemory);
+    // Past what a frame needs, more device memory only keeps the textures of earlier scenes, so
+    // collect from the memory limit on rather than near the card's budget.
+    const u32 limit_mib = Settings::values.texture_cache_memory_limit.GetValue();
+    critical_memory = (std::min)(
+        critical_memory, TextureCacheMemory::ResolveLimit(limit_mib, device_memory_total));
     expected_memory =
         (std::min)(expected_memory, critical_memory - (std::min)(critical_memory, u64{768_MiB}));
     minimum_memory =
@@ -275,6 +288,13 @@ void TextureCache<P>::ApplyThresholdOverrides(bool log) {
     if (log) {
         LOG_INFO(HW_GPU, "Texture cache thresholds: expected {} MiB, critical {} MiB, minimum {} MiB",
                  expected_memory >> 20, critical_memory >> 20, minimum_memory >> 20);
+        if (TextureCacheMemory::IsBelowRecommended(limit_mib, device_memory_total)) {
+            LOG_WARNING(HW_GPU,
+                        "Texture cache memory limit {} MiB is under the recommended {} MiB: "
+                        "textures may be evicted and decoded again",
+                        limit_mib,
+                        TextureCacheMemory::RecommendedLimit(device_memory_total) >> 20);
+        }
     }
 }
 
@@ -294,7 +314,7 @@ void TextureCache<P>::TickFrame() {
         // measured from the driver, so collect only near the device budget instead.
         if (!native_thresholds_applied && gpu_memory != nullptr && gpu_memory->UsesNativeTiling()) {
             native_thresholds_applied = true;
-            const u64 device_local = runtime.GetDeviceLocalMemory();
+            const u64 device_local = device_memory_total;
             critical_memory = (std::max)(critical_memory, device_local - 256_MiB);
             expected_memory = (std::max)(expected_memory, device_local - 1280_MiB);
             ApplyThresholdOverrides();
@@ -332,6 +352,7 @@ void TextureCache<P>::TickFrame() {
             if (native_thresholds_applied && budget_check_frames++ % 30 == 0) {
                 const u64 budget = runtime.GetDeviceMemoryBudget();
                 if (budget > 2_GiB) {
+                    device_memory_total = budget;
                     const u64 old_critical = critical_memory;
                     const u64 margin = (std::min)(budget / 8, 1_GiB);
                     if constexpr (requires { runtime.GetDeviceMemorySlack(); }) {
@@ -461,8 +482,19 @@ void TextureCache<P>::TickFrame() {
     TickAsyncDecode();
     TickAsyncUnswizzle();
     if (frame_tick % 600 == 0 && !uploaded_ranges.empty()) {
-        for (const auto& [address, size] : uploaded_ranges) {
-            device_memory.HintCold(address, size);
+        // A range uploaded more than once in the window is being rewritten (Pokopia re-uploads
+        // three 4 MiB textures every 3 frames): it is hot, and hinting each upload cold took its
+        // pages out of the working set ~200 times a window just before the game wrote them again.
+        std::sort(uploaded_ranges.begin(), uploaded_ranges.end());
+        for (size_t i = 0; i < uploaded_ranges.size();) {
+            size_t next = i + 1;
+            while (next < uploaded_ranges.size() && uploaded_ranges[next] == uploaded_ranges[i]) {
+                ++next;
+            }
+            if (next - i == 1) {
+                device_memory.HintCold(uploaded_ranges[i].first, uploaded_ranges[i].second);
+            }
+            i = next;
         }
         uploaded_ranges.clear();
     }
@@ -1081,10 +1113,20 @@ template <class P>
 bool TextureCache<P>::BlitImage(const Tegra::Engines::Fermi2D::Surface& dst,
                                 const Tegra::Engines::Fermi2D::Surface& src,
                                 const Tegra::Engines::Fermi2D::Config& copy) {
+    // A deferred clear parked before this copy has to land before it: realizing it afterwards
+    // starts its clear pass after the copy and wipes what the copy wrote. That is what made
+    // Ocarina of Time draw its terrain layer over the scene (#101): the game clears the
+    // occlusion depth, blits the scene depth over it, and reads it back during the layer draw.
+    // GetFramebufferId only flushes when it creates a framebuffer, so the bug starts on the
+    // second frame. Texture cache copies bypass render passes and keep stream order here.
+    // Only when the copy proceeds: a rejected blit writes nothing and must not realize the
+    // clear ahead of the next draw that consumes it as its load-op. GetBlitImages cannot
+    // invalidate the parked clear: framebuffer removal flushes first (RemoveFramebuffers).
     const auto result = GetBlitImages(dst, src, copy);
     if (!result) {
         return false;
     }
+    runtime.FlushDeferredClear();
     const BlitImages images = *result;
     const ImageId dst_id = images.dst_id;
     const ImageId src_id = images.src_id;
@@ -2016,12 +2058,19 @@ void TextureCache<P>::UploadLayers(Image& image, std::span<const u32> layers) {
             std::vector<BufferImageCopy> copies;
             for (size_t i = 0; i < layers.size(); ++i) {
                 const GPUVAddr layer_addr = image.gpu_addr + u64{layers[i]} * image.info.layer_stride;
-                Tegra::Memory::GpuGuestMemory<u8, Tegra::Memory::GuestMemoryFlags::UnsafeRead>
-                    swizzle_data(*gpu_memory, layer_addr, image.info.layer_stride,
-                                 &swizzle_data_buffer);
-                auto layer_copies =
-                    UnswizzleImage(*gpu_memory, layer_addr, layer_info, swizzle_data,
-                                   staging.mapped_span.subspan(i * layer_size, layer_size));
+                const std::span<u8> layer_out = staging.mapped_span.subspan(i * layer_size, layer_size);
+                auto layer_copies = [&] {
+                    if (layer_info.type == ImageType::Linear) {
+                        // Read straight from guest memory; no copy into swizzle_data first.
+                        return UnswizzleLinearImage(*gpu_memory, layer_addr, layer_info,
+                                                    image.info.layer_stride, layer_out);
+                    }
+                    Tegra::Memory::GpuGuestMemory<u8, Tegra::Memory::GuestMemoryFlags::UnsafeRead>
+                        swizzle_data(*gpu_memory, layer_addr, image.info.layer_stride,
+                                     &swizzle_data_buffer);
+                    return UnswizzleImage(*gpu_memory, layer_addr, layer_info, swizzle_data,
+                                          layer_out);
+                }();
                 for (BufferImageCopy copy : layer_copies) {
                     copy.buffer_offset += i * layer_size;
                     copy.image_subresource.base_layer = static_cast<s32>(layers[i]);
@@ -2088,6 +2137,45 @@ void TextureCache<P>::UploadImageContents(Image& image, StagingBuffer& staging) 
         return;
     }
 
+    if (image.info.type == ImageType::Linear) {
+        // A linear image is read straight from guest memory into its destination: copying it
+        // into swizzle_data first, as below, read it twice (3% of the split's back thread with
+        // Pokopia's town in view).
+        if (True(image.flags & ImageFlagBits::Converted)) {
+            unswizzle_data_buffer.resize_destructive(image.unswizzled_size_bytes);
+            auto copies = UnswizzleLinearImage(*gpu_memory, gpu_addr, image.info,
+                                               image.guest_size_bytes, unswizzle_data_buffer);
+            ConvertImage(unswizzle_data_buffer, image.info, mapped_span, copies);
+            image.UploadMemory(staging, copies);
+        } else {
+            // Pokopia rewrites three 4 MiB linear textures in turn and each is uploaded again
+            // every 3 frames: the worker thread copies guest memory into the staging buffer,
+            // right before the image copy it records, instead of this thread (~2.5% of the
+            // split's back thread). EDEN_NX2_DEFER_UPLOADS=0 copies here.
+            if constexpr (requires(u8* p) {
+                              runtime.DeferGuestRead(p, device_memory, DAddr{}, size_t{});
+                          }) {
+                static const bool defer_uploads = [] {
+                    const char* const value = std::getenv("EDEN_NX2_DEFER_UPLOADS");
+                    return value == nullptr || value[0] != '0';
+                }();
+                constexpr size_t DeferMinBytes = 64_KiB;
+                if (defer_uploads && image.guest_size_bytes >= DeferMinBytes &&
+                    False(image.flags & ImageFlagBits::Sparse) &&
+                    mapped_span.size_bytes() >= image.guest_size_bytes) {
+                    runtime.DeferGuestRead(mapped_span.data(), device_memory, image.cpu_addr,
+                                           image.guest_size_bytes);
+                    const auto copies = LinearImageCopies(image.info, image.guest_size_bytes);
+                    image.UploadMemory(staging, copies);
+                    return;
+                }
+            }
+            const auto copies = UnswizzleLinearImage(*gpu_memory, gpu_addr, image.info,
+                                                     image.guest_size_bytes, mapped_span);
+            image.UploadMemory(staging, copies);
+        }
+        return;
+    }
     Tegra::Memory::GpuGuestMemory<u8, Tegra::Memory::GuestMemoryFlags::UnsafeRead> swizzle_data(
         *gpu_memory, gpu_addr, image.guest_size_bytes, &swizzle_data_buffer);
     if (True(image.flags & ImageFlagBits::Converted)) {
@@ -2993,6 +3081,11 @@ ImageId TextureCache<P>::FindDMAImage(const ImageInfo& info, GPUVAddr gpu_addr) 
 template <class P>
 std::pair<u32, u32> TextureCache<P>::PrepareDmaImage(ImageId dst_id, GPUVAddr base_addr,
                                                      bool mark_as_modified) {
+    // As in BlitImage: land a parked deferred clear before the DMA write, but only when the
+    // write happens (mark_as_modified); a read-only access writes nothing.
+    if (mark_as_modified) {
+        runtime.FlushDeferredClear();
+    }
     const auto& image = slot_images[dst_id];
     const auto base = image.TryFindBase(base_addr);
     PrepareImage(dst_id, mark_as_modified, false);
@@ -3750,6 +3843,8 @@ void TextureCache<P>::CopyImage(ImageId dst_id, ImageId src_id, std::vector<Imag
         // same guest data, which is uploaded from guest memory instead.
         return;
     }
+    // As in BlitImage: land a parked deferred clear before the copy overwrites the image.
+    runtime.FlushDeferredClear();
     const bool is_rescaled = True(src.flags & ImageFlagBits::Rescaled);
     if (is_rescaled) {
         ASSERT(True(dst.flags & ImageFlagBits::Rescaled));
