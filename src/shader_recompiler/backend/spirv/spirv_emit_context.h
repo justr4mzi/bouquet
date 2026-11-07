@@ -350,7 +350,6 @@ public:
         IAdd, SMin, UMin, SMax, UMax, Inc, Dec, And, Or, Xor, Exchange, AddF32, Count,
     };
     std::array<Id, static_cast<size_t>(GlobalAtomic::Count)> global_atomic_funcs{};
-    Id atomic_cas_global_func_u32{};
 
 
     bool need_input_position_indirect{};
@@ -429,7 +428,7 @@ private:
     void DefineImages(const Info& info, u32& binding, u32& scaling_index);
     void DefineAttributeMemAccess(const Info& info);
     void DefineWriteStorageCasLoopFunction(const Info& info);
-    void DefineGlobalMemoryFunctions(const Info& info);
+    void DefineGlobalMemoryFunctions(const IR::Program& program);
     void DefineRescalingInput(const Info& info);
     void DefineRescalingInputPushConstant();
     void DefineRescalingInputUniformConstant();
