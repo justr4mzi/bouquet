@@ -52,7 +52,7 @@ public:
     void CallMultiMethod(Core::System& system, u32 method, const u32* base_start, u32 amount, u32 methods_pending) override;
 
     struct Regs {
-        static constexpr size_t NUM_REGS = 0x7F;
+        static constexpr size_t NUM_REGS = 0x200;
 
         union {
             struct {
@@ -68,7 +68,7 @@ public:
 
                 u32 data;
 
-                INSERT_PADDING_WORDS_NOINIT(0x11);
+                INSERT_PADDING_WORDS_NOINIT(0x200 - 0x6E);
             };
             std::array<u32, NUM_REGS> reg_array;
         };
