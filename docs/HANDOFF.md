@@ -432,3 +432,8 @@ Les remotes `pokedinner` (`https://git.eden-emu.dev/Franseven/PokeDinner-a-Eglan
 
 6. **Correction compilateur MSVC (k_address_arbiter.cpp)** :
    - Marquage `[[maybe_unused]]` de la surcharge `ReadFromUser(s64*)` pour ?viter l'erreur C5245 sur le compilateur MSVC.
+
+7. **Nettoyage et pr?paration release v0.2.0** :
+   - `k_address_arbiter.cpp` : utilisation sym?trique de `ReadFromUser` pour `WaitIfEqual64`, supprimant l'erreur MSVC C5245 tout en conservant la validation de m?moire utilisateur.
+   - `.github/workflows/release-binaries.yml` : suppression du job `prepare-release` polluant les tags Git distants lors des builds de test ; publication conditionnelle avec cr?ation du tag Git uniquement sur publication officielle (`draft: false`) ; support du fichier de notes `docs/RELEASE_NOTES_v0.2.0.md`.
+   - Suppression compl?te des tags et brouillons de test obsol?tes sur GitHub (build-10, build-34, build-35, build-36, build-37, v0.2.0-rc1-mkw-perf, v0.2.0-rc2).
