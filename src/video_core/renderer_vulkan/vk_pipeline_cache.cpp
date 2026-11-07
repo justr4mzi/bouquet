@@ -517,7 +517,13 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
                                        driver_id == VK_DRIVER_ID_MESA_TURNIP,
 
         .has_broken_spirv_clamp = driver_id == VK_DRIVER_ID_INTEL_PROPRIETARY_WINDOWS,
-        .has_broken_spirv_position_input = driver_id == VK_DRIVER_ID_QUALCOMM_PROPRIETARY,
+        .has_broken_spirv_position_input = driver_id == VK_DRIVER_ID_QUALCOMM_PROPRIETARY ||
+#ifdef _WIN32
+                                           driver_id == VK_DRIVER_ID_AMD_PROPRIETARY
+#else
+                                           false
+#endif
+                                           ,
         .has_broken_unsigned_image_offsets = false,
         .has_broken_signed_operations = false,
         .has_broken_fp16_float_controls = driver_id == VK_DRIVER_ID_NVIDIA_PROPRIETARY,
@@ -1289,6 +1295,35 @@ std::unique_ptr<GraphicsPipeline> PipelineCache::CreateGraphicsPipeline(
             layer_source_program = &programs[index];
         }
     }
+#ifdef _WIN32
+    // AMD's Windows driver can crash when a geometry shader exports all generic locations.
+    if (device.GetDriverID() == VK_DRIVER_ID_AMD_PROPRIETARY && !key.xfb_enabled) {
+        constexpr size_t geometry_index = static_cast<size_t>(Maxwell::ShaderType::Geometry);
+        constexpr size_t fragment_index = static_cast<size_t>(Maxwell::ShaderType::Pixel);
+        if (key.unique_hashes[geometry_index] != 0 &&
+            key.unique_hashes[fragment_index] != 0) {
+            auto& geometry = programs[geometry_index];
+            const auto& fragment = programs[fragment_index];
+            size_t generic_outputs{};
+            for (size_t index = 0; index < Shader::IR::NUM_GENERICS; ++index) {
+                generic_outputs += geometry.info.stores.Generic(index) ? 1 : 0;
+            }
+            if (generic_outputs == Shader::IR::NUM_GENERICS &&
+                !geometry.info.stores.Legacy() && !fragment.info.loads.Legacy()) {
+                for (size_t index = 0; index < Shader::IR::NUM_GENERICS; ++index) {
+                    if (fragment.info.loads.Generic(index)) {
+                        continue;
+                    }
+                    for (size_t component = 0; component < 4; ++component) {
+                        geometry.info.stores.Set(Shader::IR::Attribute::Generic0X + index * 4 +
+                                                     component,
+                                                 false);
+                    }
+                }
+            }
+        }
+    }
+#endif
     std::array<const Shader::Info*, Maxwell::MaxShaderStage> infos{};
     std::array<vk::ShaderModule, Maxwell::MaxShaderStage> modules;
 
