@@ -117,6 +117,7 @@ signals:
     void CreateShortcut(u64 program_id, const std::string& game_path,
                         const QtCommon::Game::ShortcutTarget target);
     void OpenPerGameGeneralRequested(const std::string& file);
+    void ApplyRecommendedSettingsRequested(u64 program_id, const std::string& game_path);
     void LinkToRyujinxRequested(const u64& program_id);
     void OpenDirectory(const QString& directory);
     void AddDirectory();
@@ -172,6 +173,7 @@ private:
     Core::System& system;
 
     bool m_isTreeMode = true;
+    bool m_populating = false;
     bool nup_conversion_running{};
     u64 reportable_program_id{};
     QAbstractItemView* m_currentView = nullptr;

@@ -488,19 +488,18 @@ void RasterizerVulkan::Draw(bool is_indexed, u32 instance_count) {
     // compare both in one run (same weather, time and place).
     static const int far_shadow_mode = [] {
         const char* const value = std::getenv("EDEN_NX2_SHADOW_FAR");
-        return value == nullptr ? -1 : (value[0] == '0' ? 0 : 1);
+        return value == nullptr ? 1 : (value[0] == '0' ? 0 : 1);
     }();
     static const u64 far_shadow_alternate = [] {
         const char* const value = std::getenv("EDEN_NX2_SHADOW_FAR_ALTERNATE");
         return value != nullptr ? std::strtoull(value, nullptr, 10) : 0ULL;
     }();
-    constexpr u64 PokopiaProgramId = 0x0400A3A01EE4C000ULL;
     const bool drop_far_shadows =
         far_shadow_alternate != 0
             ? (Core::g_nx2_present_count.load(std::memory_order_relaxed) / far_shadow_alternate) %
                       2 ==
                   1
-            : far_shadow_mode == 0 || (far_shadow_mode == -1 && program_id == PokopiaProgramId);
+            : far_shadow_mode == 0;
     if (drop_far_shadows) {
         const auto& regs = maxwell3d->regs;
         const u32 size = regs.zeta_size.width;

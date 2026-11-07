@@ -9,6 +9,7 @@ add_executable(tests
     common/cityhash.cpp
     common/container_hash.cpp
     common/fibers.cpp
+    common/fs_iterate.cpp
     common/game_presets.cpp
     common/host_memory.cpp
     common/page_table.cpp
@@ -17,6 +18,7 @@ add_executable(tests
     common/ring_buffer.cpp
     common/scratch_buffer.cpp
     common/slot_vector.cpp
+    common/sparse_large_vector.cpp
     common/undefined_fix.cpp
     common/unique_function.cpp
     common/zstd_compression.cpp
@@ -39,10 +41,13 @@ add_executable(tests
     video_core/ampere_guarded_ulea.cpp
     video_core/ampere_compute_lowering.cpp
     video_core/native_macro_fifo.cpp
+    video_core/turing_macro_ram.cpp
     video_core/uniform_stream_reuse.cpp
+    video_core/usage_tracker.cpp
     video_core/shader_invalidation.cpp
     video_core/descriptor_table.cpp
     video_core/spirv_atomic_retry.cpp
+    video_core/global_atomic_routing.cpp
     input_common/calibration_configuration_job.cpp
 )
 

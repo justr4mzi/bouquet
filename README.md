@@ -110,11 +110,9 @@ works on any graphics card; the driver's own cache is rebuilt for yours.
 
 ## Optimized settings per game
 
-At its first start, Hortensia asks whether it should **set the best settings for each game
-automatically**. With the option on (it can be changed any time in **Emulation → Optimized
-Settings per Game**), starting a supported game applies its settings for that session only:
-your saved settings are never changed, and the log says what was applied
-(`Hortensia optimized settings (AMD GPU): …`).
+At its first start, Hortensia prompts you to select your preferred interface language (**Français**, **English**, or **System**), and asks whether it should **set the best settings for each game automatically** (saved to `qt-config.ini` so it does not prompt every run). With the option on (it can be changed any time in **Emulation → Optimized Settings per Game**), starting a supported game applies its settings for that session only: your saved settings are never changed, and the log says what was applied (`Hortensia optimized settings (AMD GPU): …`).
+
+You can also right-click any game in the game list at any time and choose **Apply Recommended Settings** (or **Appliquer les paramètres recommandés**) to instantly apply that title's optimized configuration.
 
 Hortensia reads your **graphics card's vendor** from the selected Vulkan device:
 
@@ -186,7 +184,7 @@ off for that game.
 
 ### Pokémon Pokopia & Mario Tennis Fever
 
-- **Pokémon Pokopia**: **Playable** (~58 FPS stable). Storage reads unpaced for fast boot; far shadow cascades skipped for +17% GPU efficiency. (Note: exterior sky renders black).
+- **Pokémon Pokopia**: **Playable** (~58 FPS stable). Storage reads unpaced for fast boot; far shadow cascades preserved by default (fixing the dark sky).
 - **Mario Tennis Fever**: **Playable** (~58 FPS stable).
 
 ### Splatoon Raiders & Nintendo Switch Sports Resort
@@ -288,7 +286,6 @@ Open an [issue on GitHub](https://github.com/justr4mzi/hortensia/issues) and att
 - **The Legend of Zelda: Ocarina of Time & Donkey Kong Bananza**: Fixes are included in this release and are currently undergoing hardware validation.
 - **Splatoon Raiders & Nintendo Switch Sports Resort**: Do not boot or render yet on this version; fixes are under active development.
 - **Controller UI**: Some button prompt icons appear as `?`.
-- **Pokémon Pokopia**: The exterior sky currently renders black.
 
 ## Building from source
 

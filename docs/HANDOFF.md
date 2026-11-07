@@ -379,3 +379,44 @@ Les remotes `pokedinner` (`https://git.eden-emu.dev/Franseven/PokeDinner-a-Eglan
    - Palette de couleurs adoucie pour les lignes alternées de la liste de jeux (`#16141b` et `#191720`, bordure `#221f2b`), et fusion de la ligne de dossier sur toutes les colonnes.
 
 ---
+
+## 5. Synthèse des intégrations et correctifs (build-35 et suivants)
+
+1. **Intégrations amont (commits originaux)** :
+   - **Lichii nx2** :
+     - `#439` (`e8bf112bb7`) : agrandissement de la RAM de macros Turing au-delà de `0x1000` (résout les erreurs d'engine inconnu et les échecs MME).
+     - `#438` (`ba1aa10cbe`) : restitution propre des macros aux engines lors de l'arrêt du split GPU.
+     - `#425` (`19d48d9856`) : suivi de chaque bloc de 64 octets touché dans le buffer cache.
+     - `#429` (`d4653fb307`) : routage des atomiques globales 32 bits non suivies vers leur storage buffer.
+     - `#435` (`c85ee33318`) : rejet des plages d'adresses virtuelles dépassant la fin de l'espace d'adressage.
+     - `#485` (`d7908a444f`) : maintien engagé des pages de table de pages mises à zéro.
+     - `#443` (`318854adf2`) : correction de deux plantages lors du scan des répertoires de jeux.
+     - `#442` (`dac688e0f8`) : correction de la sélection de stratégie de migration de données utilisateur.
+     - `#433` : vérifié déjà présent dans `emit_spirv_image.cpp`.
+   - **Eglantine nx2 (Duck912 & kraibse)** :
+     - `a23be213` (`ebd4768925`) : `frames_ahead = 0` pour Ocarina of Time et Donkey Kong Bananza.
+     - `688c6fa7` (`1f05fd27f7`) : reconstruction dynamique des pipelines compute lorsqu'un pointeur initialement nul reçoit un buffer alloué (corrige le feuillage à Hyrule Castle Town).
+     - `45ebf0f7` : comptage des workers arrêtés sous le mutex de queue.
+   - **Orchid 0.9.0 (MythosOfs)** :
+     - `c7d26dc2` : addends 64 bits complets pour `IMAD.HI` (implémentation étendue présente dans HEAD).
+     - `a2cefedfc4` (`e92d6d15a9`) + `63eaaba0` (`94f09e11d3`) : copie et préservation des snapshots simultanés pour les retours couleur (évite les artefacts de boucle de feedback sur AMD RADV dans DK Bananza).
+   - **notsapinho** :
+     - `77875bb6` (`6cb9fa759b`) : correctifs AMD pour compute shaders (vues vectorielles alignées et boucle CAS sans rechargement non cohérent).
+
+2. **Résolution des anomalies critiques en jeu** :
+   - **The Legend of Zelda: Ocarina of Time** :
+     - Cause du crash à 21 s (`0xf001`) : l'appel système kernel SVC 0x34 (`WaitForAddress`) recevait l'arbitration type 3 (`WaitIfEqual64`), non reconnu par le kernel Hortensia/yuzu (`ResultInvalidEnumValue` 0xf001). Port du correctif `WaitIfEqual64` (`3ebea1c0d7` zortos293 `a7f2ee336c`).
+     - Prise en charge de la version d'affichage des dumps loose (`LooseDumpDisplayVersion`) quand la métadonnées installée ne fournit pas de version (`134781dafa`).
+   - **Donkey Kong Bananza & Switch Sports** :
+     - *Désynchronisation pushbuffer & freeze à 5 min* : lorsque `dma_pushbuffer_subindex >= command_list_size`, un reliquat de `dma_state.method_count` non nul contaminerait la soumission suivante en lisant ses en-têtes comme arguments de commande. Réinitialisation complète (`dma_state.method_count = 0`, `split_method_end = 0`) en fin de soumission (`00696952ac`).
+     - *Sols et textures manquants* : émulation matricielle HMMA activée par défaut (`73d1380330`), suppression du rejet des descripteurs QMD dont les bits hauts d'adresses portent des drapeaux (`1339e2e0f0`).
+     - *Invalid KeplerMemory & Fermi2D* : agrandissement de `Regs::NUM_REGS` à `0x200` et protection des bornes de méthodes contre tout débordement mémoire (`b4bb76f39a`).
+   - **Pokémon Pokopia** :
+     - *Ciel noir* : désactivation de la suppression de la cascade d'ombre lointaine par défaut (`far_shadow_mode = 1`, `17d8fa2776`), le ciel et l'horizon s'affichent normalement.
+
+3. **Expérience utilisateur (UI) & Cycle de publication** :
+   - Sélecteur de langue au premier démarrage (Français / English / Système) avant ouverture de l'interface principale (`38ea9bb7ee`).
+   - Persistance de la boîte de dialogue des paramètres recommandés dans `qt-config.ini` (`recommended_settings_asked`), ne demandant plus à chaque lancement (`38ea9bb7ee`).
+   - Action contextuelle clic droit dans la liste de jeux : « Appliquer les paramètres recommandés » (`38ea9bb7ee`).
+   - Publication des builds de test sous forme de **Draft Releases** (brouillons visibles uniquement par le propriétaire) dans `.github/workflows/release-binaries.yml` (`f27dc18d64`).
+   - Conversion des anciennes pre-releases de test (`v0.2.0-rc2`, `v0.2.0-rc1-mkw-perf`, `build-34`, `build-10`) en brouillons (drafts).

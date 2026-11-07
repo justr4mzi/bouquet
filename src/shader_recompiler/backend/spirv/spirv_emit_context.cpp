@@ -311,6 +311,11 @@ void DefineSsbos(EmitContext& ctx, StorageTypeDefinition& type_def,
     const Id struct_type{ctx.TypeStruct(array_type)};
     ctx.Decorate(struct_type, spv::Decoration::Block);
     ctx.MemberDecorate(struct_type, 0, spv::Decoration::Offset, 0U);
+    if (info.requires_coherent_global_memory) {
+        // Loads must see other workgroups' stores (a Switch 2 LDG.CG): AMD otherwise reads them
+        // from its non-coherent vector cache, stale while another workgroup spins on them.
+        ctx.MemberDecorate(struct_type, 0, spv::Decoration::Coherent);
+    }
 
     const Id struct_pointer{ctx.TypePointer(spv::StorageClass::StorageBuffer, struct_type)};
     type_def.array = struct_pointer;
@@ -392,49 +397,16 @@ Id CasLoop(EmitContext& ctx, Operation operation, Id array_pointer, Id element_p
     const Id op_b{ctx.OpFunctionParameter(value_type)};
     const Id base{is_shared ? ctx.shared_memory_u32 : ctx.OpFunctionParameter(array_pointer)};
     ctx.AddLabel();
-    const bool packed_half{value_type.value == ctx.F32[2].value};
-    if (packed_half || memory_type.value == ctx.U32[1].value) {
-        // Each attempt expects the word the previous compare-exchange returned. A plain reload can
-        // keep returning a stale copy (AMD), and the invocations that lost would never match again.
-        const Id expected_var{ctx.AddLocalVariable(
-            ctx.TypePointer(spv::StorageClass::Function, ctx.U32[1]), spv::StorageClass::Function)};
-        const Id word_pointer{is_struct ? ctx.OpAccessChain(element_pointer, base, zero, index)
-                                        : ctx.OpAccessChain(element_pointer, base, index)};
-        ctx.OpStore(expected_var, ctx.OpLoad(ctx.U32[1], word_pointer));
-        ctx.OpBranch(loop_header);
-        ctx.AddLabel(loop_header);
-
-        ctx.OpLoopMerge(merge_block, continue_block, spv::LoopControlMask::MaskNone);
-        ctx.OpBranch(continue_block);
-
-        ctx.AddLabel(continue_block);
-        const Id expected{ctx.OpLoad(ctx.U32[1], expected_var)};
-        const bool is_u32{value_type.value == ctx.U32[1].value};
-        Id new_word{};
-        if (packed_half) {
-            const Id value{ctx.OpUnpackHalf2x16(ctx.F32[2], expected)};
-            const Id new_value{ctx.OpFunctionCall(value_type, cas_func, value, op_b)};
-            new_word = ctx.OpPackHalf2x16(ctx.U32[1], new_value);
-        } else {
-            const Id value{is_u32 ? expected : ctx.OpBitcast(value_type, expected)};
-            const Id new_value{ctx.OpFunctionCall(value_type, cas_func, value, op_b)};
-            new_word = is_u32 ? new_value : ctx.OpBitcast(ctx.U32[1], new_value);
-        }
-        const Id atomic_res{ctx.OpAtomicCompareExchange(ctx.U32[1], word_pointer, scope_id, zero,
-                                                        zero, new_word, expected)};
-        ctx.OpStore(expected_var, atomic_res);
-        const Id success{ctx.OpIEqual(ctx.U1, atomic_res, expected)};
-        ctx.OpBranchConditional(success, merge_block, loop_header);
-
-        ctx.AddLabel(merge_block);
-        if (packed_half) {
-            ctx.OpReturnValue(ctx.OpUnpackHalf2x16(ctx.F32[2], atomic_res));
-        } else {
-            ctx.OpReturnValue(is_u32 ? atomic_res : ctx.OpBitcast(value_type, atomic_res));
-        }
-        ctx.OpFunctionEnd();
-        return func;
-    }
+    // A retry compares against the value the failed exchange returned, not a new load of the
+    // word: a plain load can keep hitting a stale line of a non-coherent cache (AMD), and a
+    // thread that lost the race then spun forever. The first expected value is loaded once.
+    const bool is_f32x2{value_type.value == ctx.F32[2].value};
+    const Id expected_type{is_f32x2 ? ctx.U32[1] : memory_type};
+    const Id expected_var{ctx.AddLocalVariable(
+        ctx.TypePointer(spv::StorageClass::Function, expected_type), spv::StorageClass::Function)};
+    const Id word_pointer{is_struct ? ctx.OpAccessChain(element_pointer, base, zero, index)
+                                    : ctx.OpAccessChain(element_pointer, base, index)};
+    ctx.OpStore(expected_var, ctx.OpLoad(expected_type, word_pointer));
     ctx.OpBranch(loop_header);
     ctx.AddLabel(loop_header);
 
@@ -442,20 +414,35 @@ Id CasLoop(EmitContext& ctx, Operation operation, Id array_pointer, Id element_p
     ctx.OpBranch(continue_block);
 
     ctx.AddLabel(continue_block);
-    const Id word_pointer{is_struct ? ctx.OpAccessChain(element_pointer, base, zero, index)
-                                    : ctx.OpAccessChain(element_pointer, base, index)};
-    const Id value{ctx.OpLoad(memory_type, word_pointer)};
-    const bool matching_type{value_type.value == memory_type.value};
-    const Id bitcast_value{matching_type ? value : ctx.OpBitcast(value_type, value)};
-    const Id cal_res{ctx.OpFunctionCall(value_type, cas_func, bitcast_value, op_b)};
-    const Id new_value{matching_type ? cal_res : ctx.OpBitcast(memory_type, cal_res)};
-    const Id atomic_res{ctx.OpAtomicCompareExchange(ctx.U32[1], word_pointer, scope_id, zero,
-                                                    zero, new_value, value)};
-    const Id success{ctx.OpIEqual(ctx.U1, atomic_res, value)};
-    ctx.OpBranchConditional(success, merge_block, loop_header);
+    if (is_f32x2) {
+        const Id u32_value{ctx.OpLoad(ctx.U32[1], expected_var)};
+        const Id value{ctx.OpUnpackHalf2x16(ctx.F32[2], u32_value)};
+        const Id new_value{ctx.OpFunctionCall(value_type, cas_func, value, op_b)};
+        const Id u32_new_value{ctx.OpPackHalf2x16(ctx.U32[1], new_value)};
+        const Id atomic_res{ctx.OpAtomicCompareExchange(ctx.U32[1], word_pointer, scope_id, zero,
+                                                        zero, u32_new_value, u32_value)};
+        const Id success{ctx.OpIEqual(ctx.U1, atomic_res, u32_value)};
+        ctx.OpStore(expected_var, atomic_res);
+        ctx.OpBranchConditional(success, merge_block, loop_header);
 
-    ctx.AddLabel(merge_block);
-    ctx.OpReturnValue(ctx.OpBitcast(value_type, atomic_res));
+        ctx.AddLabel(merge_block);
+        ctx.OpReturnValue(ctx.OpUnpackHalf2x16(ctx.F32[2], atomic_res));
+    } else {
+        const Id value{ctx.OpLoad(memory_type, expected_var)};
+        const bool matching_type{value_type.value == memory_type.value};
+        const Id bitcast_value{matching_type ? value : ctx.OpBitcast(value_type, value)};
+        const Id cal_res{ctx.OpFunctionCall(value_type, cas_func, bitcast_value, op_b)};
+        const Id new_value{matching_type ? cal_res : ctx.OpBitcast(memory_type, cal_res)};
+        const Id atomic_res{ctx.OpAtomicCompareExchange(ctx.U32[1], word_pointer, scope_id, zero,
+                                                        zero, new_value, value)};
+        const Id success{ctx.OpIEqual(ctx.U1, atomic_res, value)};
+        const bool u32_memory{memory_type.value == ctx.U32[1].value};
+        ctx.OpStore(expected_var, u32_memory ? atomic_res : ctx.OpBitcast(memory_type, atomic_res));
+        ctx.OpBranchConditional(success, merge_block, loop_header);
+
+        ctx.AddLabel(merge_block);
+        ctx.OpReturnValue(ctx.OpBitcast(value_type, atomic_res));
+    }
     ctx.OpFunctionEnd();
     return func;
 }
@@ -497,8 +484,18 @@ void VectorTypes::Define(Sirit::Module& sirit_ctx, Id base_type, std::string_vie
 EmitContext::EmitContext(const Profile& profile_, const RuntimeInfo& runtime_info_,
                          IR::Program& program, Bindings& bindings)
     : Sirit::Module(profile_.supported_spirv), profile{profile_}, runtime_info{runtime_info_},
-      stage{program.stage}, texture_rescaling_index{bindings.texture_scaling_index},
+      stage{program.stage},
+      requires_coherent_global_memory{program.info.requires_coherent_global_memory},
+      texture_rescaling_index{bindings.texture_scaling_index},
       image_rescaling_index{bindings.image_scaling_index} {
+    if (requires_coherent_global_memory) {
+        static std::atomic<u32> logged{};
+        if (logged.fetch_add(1, std::memory_order_relaxed) < 16) {
+            LOG_INFO(Shader_SPIRV, "Coherent storage buffers: a {} program reads global memory "
+                                   "other workgroups write (strong LDG)",
+                     program.stage == Stage::Compute ? "compute" : "graphics");
+        }
+    }
     const bool is_unified{profile.unified_descriptor_binding};
     u32& uniform_binding{is_unified ? bindings.unified : bindings.uniform_buffer};
     u32& storage_binding{is_unified ? bindings.unified : bindings.storage_buffer};
@@ -1125,6 +1122,103 @@ void EmitContext::DefineGlobalMemoryFunctions(const Info& info) {
         define(&StorageDefinitions::U32x2, storage_types.U32x2, U32[2], sizeof(u32[2]));
     std::tie(load_global_func_u32x4, write_global_func_u32x4) =
         define(&StorageDefinitions::U32x4, storage_types.U32x4, U32[4], sizeof(u32[4]));
+
+    if (!std::ranges::any_of(info.storage_buffers_descriptors, [&](const auto& descriptor) {
+            return info.native_global_bounds || UsesNvnStorageDescriptor(info, descriptor);
+        })) {
+        return;
+    }
+    // Atomics the storage buffer pass could not track: the same routing, with the operation on
+    // the routed word (INC, DEC and F32 add through their storage buffer CAS loops).
+    using enum GlobalAtomic;
+    const auto kind_of = [](IR::Opcode opcode) -> std::optional<GlobalAtomic> {
+        switch (opcode) {
+        case IR::Opcode::GlobalAtomicIAdd32: return IAdd;
+        case IR::Opcode::GlobalAtomicSMin32: return SMin;
+        case IR::Opcode::GlobalAtomicUMin32: return UMin;
+        case IR::Opcode::GlobalAtomicSMax32: return SMax;
+        case IR::Opcode::GlobalAtomicUMax32: return UMax;
+        case IR::Opcode::GlobalAtomicInc32: return Inc;
+        case IR::Opcode::GlobalAtomicDec32: return Dec;
+        case IR::Opcode::GlobalAtomicAnd32: return And;
+        case IR::Opcode::GlobalAtomicOr32: return Or;
+        case IR::Opcode::GlobalAtomicXor32: return Xor;
+        case IR::Opcode::GlobalAtomicExchange32: return Exchange;
+        case IR::Opcode::GlobalAtomicAddF32: return AddF32;
+        default: return std::nullopt;
+        }
+    };
+    std::array<bool, static_cast<size_t>(Count)> used{};
+    for (const IR::Block* const block : program.blocks) {
+        for (const IR::Inst& inst : block->Instructions()) {
+            if (const auto kind = kind_of(inst.GetOpcode())) {
+                used[static_cast<size_t>(*kind)] = true;
+            }
+        }
+    }
+    const Id scope{Const(static_cast<u32>(spv::Scope::Device))};
+    for (size_t index = 0; index < used.size(); ++index) {
+        if (!used[index]) {
+            continue;
+        }
+        const auto kind = static_cast<GlobalAtomic>(index);
+        const Id type{kind == AddF32 ? F32[1] : U32[1]};
+        const Id func_id{OpFunction(type, spv::FunctionControlMask::MaskNone,
+                                    TypeFunction(type, U64, type))};
+        const Id addr{OpFunctionParameter(U64)};
+        const Id value{OpFunctionParameter(type)};
+        define_body(&StorageDefinitions::U32, addr, storage_types.U32.element, 2,
+                    [&](Id pointer, Id ssbo, Id word) {
+                        const auto atomic = [&](Id (Sirit::Module::*op)(Id, Id, Id, Id, Id)) {
+                            return (this->*op)(U32[1], pointer, scope, zero, value);
+                        };
+                        switch (kind) {
+                        case IAdd: OpReturnValue(atomic(&Sirit::Module::OpAtomicIAdd)); break;
+                        case SMin: OpReturnValue(atomic(&Sirit::Module::OpAtomicSMin)); break;
+                        case UMin: OpReturnValue(atomic(&Sirit::Module::OpAtomicUMin)); break;
+                        case SMax: OpReturnValue(atomic(&Sirit::Module::OpAtomicSMax)); break;
+                        case UMax: OpReturnValue(atomic(&Sirit::Module::OpAtomicUMax)); break;
+                        case And: OpReturnValue(atomic(&Sirit::Module::OpAtomicAnd)); break;
+                        case Or: OpReturnValue(atomic(&Sirit::Module::OpAtomicOr)); break;
+                        case Xor: OpReturnValue(atomic(&Sirit::Module::OpAtomicXor)); break;
+                        case Exchange: OpReturnValue(atomic(&Sirit::Module::OpAtomicExchange)); break;
+                        case Inc:
+                            OpReturnValue(OpFunctionCall(U32[1], increment_cas_ssbo, word, value, ssbo));
+                            break;
+                        case Dec:
+                            OpReturnValue(OpFunctionCall(U32[1], decrement_cas_ssbo, word, value, ssbo));
+                            break;
+                        case AddF32:
+                            OpReturnValue(OpFunctionCall(F32[1], f32_add_cas, word, value, ssbo));
+                            break;
+                        case Count: break;
+                        }
+                    });
+        OpReturnValue(ConstantNull(type));
+        OpFunctionEnd();
+        global_atomic_funcs[index] = func_id;
+    }
+    if (std::ranges::any_of(program.blocks, [](const IR::Block* block) {
+            return std::ranges::any_of(block->Instructions(), [](const IR::Inst& inst) {
+                return inst.GetOpcode() == IR::Opcode::GlobalAtomicCompareExchange32;
+            });
+        })) {
+        const Id function_type{TypeFunction(U32[1], U64, U32[1], U32[1])};
+        atomic_cas_global_func_u32 =
+            OpFunction(U32[1], spv::FunctionControlMask::MaskNone, function_type);
+        const Id address{OpFunctionParameter(U64)};
+        const Id comparator{OpFunctionParameter(U32[1])};
+        const Id value{OpFunctionParameter(U32[1])};
+        define_body(&StorageDefinitions::U32, address, storage_types.U32.element, 2,
+                    [&](Id pointer, Id, Id) {
+                        OpReturnValue(OpAtomicCompareExchange(U32[1], pointer, scope,
+                                                              u32_zero_value, u32_zero_value,
+                                                              value, comparator));
+                    });
+        // No buffer matched: report success so a guest CAS retry loop cannot spin forever.
+        OpReturnValue(comparator);
+        OpFunctionEnd();
+    }
 
 }
 

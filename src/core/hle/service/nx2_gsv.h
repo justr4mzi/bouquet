@@ -1684,18 +1684,6 @@ public:
             {232, &INx2Vi2Session::StubReplyZeroed, "Unknown232"},
             {251, &INx2Vi2Session::StubReplyZeroed, "Unknown251"},
             {252, &INx2Vi2Session::StubReplyZeroed, "Unknown252"},
-            {261, &INx2Vi2Session::StubReplyZeroed, "Unknown261"},
-            {262, &INx2Vi2Session::StubReplyZeroed, "Unknown262"},
-            {263, &INx2Vi2Session::StubReplyZeroed, "Unknown263"},
-            {264, &INx2Vi2Session::StubReplyZeroed, "Unknown264"},
-            {265, &INx2Vi2Session::StubReplyZeroed, "Unknown265"},
-            {266, &INx2Vi2Session::StubReplyZeroed, "Unknown266"},
-            {267, &INx2Vi2Session::StubReplyZeroed, "Unknown267"},
-            {268, &INx2Vi2Session::StubReplyZeroed, "Unknown268"},
-            {269, &INx2Vi2Session::StubReplyZeroed, "Unknown269"},
-            {270, &INx2Vi2Session::StubReplyZeroed, "Unknown270"},
-            {271, &INx2Vi2Session::StubReplyZeroed, "Unknown271"},
-            {272, &INx2Vi2Session::StubReplyZeroed, "Unknown272"},
             {301, &INx2Vi2Session::StubReplyZeroed, "Unknown301"},
             {302, &INx2Vi2Session::StubReplyZeroed, "Unknown302"},
             {351, &INx2Vi2Session::StubReplyZeroed, "Unknown351"},
@@ -1748,10 +1736,23 @@ private:
         // previous frame's fence instead and let the game prepare frame N+1 meanwhile (waiting
         // for this frame there cost 8-56 ms of every 34-105 ms frame, or never finished).
         // EDEN_NX2_FRAMES_AHEAD=1 always waits for the previous frame, =0 always for this one.
-        static const int frames_ahead = [] {
+        static const int frames_ahead_setting = [] {
             const char* value = std::getenv("EDEN_NX2_FRAMES_AHEAD");
             return value == nullptr ? -1 : value[0] == '1' ? 1 : 0;
         }();
+        // Donkey Kong Bananza's channels wait on each other every frame, so it always ran a frame
+        // ahead, where it rewrote memory the GPU thread hadn't read yet (misread commands, then
+        // a freeze or crash; rubberbanding while moving). Title 1 runs ahead without either.
+        // Ocarina of Time a frame ahead rewrote data the GPU thread still read for this frame, and
+        // the frame rendered with the next one's (one-frame white or overexposed flashes).
+        constexpr u64 DonkeyKongBananzaProgramId = 0x040074A01BF12000ULL;
+        constexpr u64 OcarinaOfTimeProgramId = 0x0400486024DEC000ULL;
+        int frames_ahead = frames_ahead_setting;
+        const u64 app_program_id = system.GetApplicationProcessProgramID();
+        if (frames_ahead == -1 && (app_program_id == DonkeyKongBananzaProgramId ||
+                                   app_program_id == OcarinaOfTimeProgramId)) {
+            frames_ahead = 0;
+        }
         const auto entered = std::chrono::steady_clock::now();
         if (frames_ahead == 1 || (frames_ahead == -1 && !WaitForFrame(~w[22], w[24], true))) {
             LOG_DEBUG(Service, "nx2:vi2 present #{} fence ({}, {:#x}), waiting for ({}, {:#x}); now {:#x}",
@@ -2383,7 +2384,13 @@ private:
     void BindVsync(HLERequestContext& ctx) {
         const u32 index = ctx.CommandBuffer()[4];
         LOG_INFO(Service, "nx2:vi2 261 native event {} -> vsync", index);
-        if (index < m_native_events.size() && m_native_events[index]) {
+        if (index < m_native_events.size()) {
+            m_bound_change[index] = false;
+            if (!m_native_events[index]) {
+                m_native_events[index] = m_context.CreateEvent(fmt::format("nx2:vi2:Native{}", index));
+                m_events.push_back(m_native_events[index]);
+                StartVsyncTimer();
+            }
             SetVsyncSlot(index, true);
         }
         TipcReplyWords(ctx, {});
@@ -2397,7 +2404,12 @@ private:
     void BindChange(HLERequestContext& ctx) {
         const u32 index = ctx.CommandBuffer()[4];
         LOG_INFO(Service, "nx2:vi2 {} native event {} -> change notification", ctx.GetCommand(), index);
-        if (index < m_native_events.size() && m_native_events[index]) {
+        if (index < m_native_events.size()) {
+            m_bound_change[index] = true;
+            if (!m_native_events[index]) {
+                m_native_events[index] = m_context.CreateEvent(fmt::format("nx2:vi2:Native{}", index));
+                m_events.push_back(m_native_events[index]);
+            }
             SetVsyncSlot(index, false);
             m_native_events[index]->Signal(system.Kernel());
         }
@@ -2408,8 +2420,11 @@ private:
     void UnbindNativeEvent(HLERequestContext& ctx) {
         const u32 index = ctx.CommandBuffer()[4];
         LOG_INFO(Service, "nx2:vi2 {} native event {} unbound", ctx.GetCommand(), index);
-        if (index < m_native_events.size() && m_native_events[index]) {
-            SetVsyncSlot(index, false);
+        if (index < m_native_events.size()) {
+            m_bound_change[index] = false;
+            if (m_native_events[index]) {
+                SetVsyncSlot(index, false);
+            }
         }
         TipcReplyWords(ctx, {});
     }
@@ -2419,8 +2434,10 @@ private:
         if (!event) {
             event = m_context.CreateEvent(fmt::format("nx2:vi2:Native{}", index));
             m_events.push_back(event);
-            SetVsyncSlot(index, true);
-            StartVsyncTimer();
+            if (!m_bound_change[index]) {
+                SetVsyncSlot(index, true);
+                StartVsyncTimer();
+            }
         }
         IPC::ResponseBuilder rb{ctx, 2, 1, 0};
         rb.Push(ResultSuccess);
@@ -2466,6 +2483,7 @@ private:
     std::shared_ptr<Nx2NativeObjects> m_objects;
     std::vector<Kernel::KEvent*> m_events;
     std::array<Kernel::KEvent*, 8> m_native_events{}; ///< 31's slots, also listed in m_events
+    std::array<bool, 8> m_bound_change{};
     // Shared with the vsync timer callback, which can outlive the session by one call.
     struct VsyncState {
         std::mutex mutex;

@@ -7,6 +7,10 @@ on:
         description: Publish the binaries as a GitHub release
         type: boolean
         default: true
+      draft:
+        description: Create release as draft (visible only to maintainers)
+        type: boolean
+        default: true
 permissions:
   contents: read
 
@@ -745,9 +749,14 @@ jobs:
           </details>
           EOF
 
+          draft_flag="--draft"
+          if [ "${{ inputs.draft }}" = "false" ]; then
+            draft_flag=""
+          fi
+
           gh release create "${tag}" dist/* \
             --repo "${GITHUB_REPOSITORY}" \
             --verify-tag \
-            --prerelease \
+            ${draft_flag} \
             --title "Hortensia ${GITHUB_REF_NAME} build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})" \
             --notes-file notes.md

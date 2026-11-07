@@ -214,6 +214,8 @@ public:
     const Profile& profile;
     const RuntimeInfo& runtime_info;
     Stage stage{};
+    /// Info::requires_coherent_global_memory: barriers also order storage buffer memory.
+    bool requires_coherent_global_memory{};
 
     Id void_id{};
     Id U1{};
@@ -343,6 +345,13 @@ public:
     Id write_global_func_u32{};
     Id write_global_func_u32x2{};
     Id write_global_func_u32x4{};
+    // 32-bit global atomics on untracked addresses, routed to the storage buffer holding them.
+    enum class GlobalAtomic : size_t {
+        IAdd, SMin, UMin, SMax, UMax, Inc, Dec, And, Or, Xor, Exchange, AddF32, Count,
+    };
+    std::array<Id, static_cast<size_t>(GlobalAtomic::Count)> global_atomic_funcs{};
+    Id atomic_cas_global_func_u32{};
+
 
     bool need_input_position_indirect{};
     Id input_position{};
