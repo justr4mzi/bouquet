@@ -728,7 +728,7 @@ jobs:
           | --- | --- |
           | **Windows** (almost every PC) | [**Hortensia-Windows.zip**](${base}/Hortensia-Windows.zip) |
           | Windows, if Hortensia doesn't start or shows graphical errors | [Hortensia-Windows-Compatibility.zip](${base}/Hortensia-Windows-Compatibility.zip) |
-          | **Linux** | [**Hortensia-Linux.AppImage**](${base}/Hortensia-Linux.AppImage) ? ARM: [Hortensia-Linux-ARM.AppImage](${base}/Hortensia-Linux-ARM.AppImage) |
+          | **Linux** | [**Hortensia-Linux.AppImage**](${base}/Hortensia-Linux.AppImage) (ARM: [Hortensia-Linux-ARM.AppImage](${base}/Hortensia-Linux-ARM.AppImage)) |
           | **Mac** with Apple Silicon (M1 or newer) | [**Hortensia-macOS.zip**](${base}/Hortensia-macOS.zip) |
 
           ## How to start
