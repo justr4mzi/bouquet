@@ -243,8 +243,8 @@ Result IApplicationFunctions::GetDisplayVersion(Out<DisplayVersion> out_display_
     const auto res = GetApplicationMetadata(system, m_applet->program_id);
     std::string version;
     if (res.first != nullptr) {
-        version = res.first->GetVersionString();
-    } else if (!LooseDumpDisplayVersion(version)) {
+        if (!res.first->GetVersionString().empty()) { version = res.first->GetVersionString(); }
+    } if (version.empty() && !LooseDumpDisplayVersion(version)) {
         version = "1.0.0";
     }
     std::memcpy(out_display_version->string.data(), version.data(),
