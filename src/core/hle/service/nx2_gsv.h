@@ -1972,6 +1972,15 @@ private:
         if (mkw_dynamic) {
             swap_interval = 1;
         }
+        // Bananza with dynamic FPS (loader/nso.cpp) times its own frames: holding each frame for
+        // the 2 or 3 vblanks it asked for kept it at 20-30 fps. Pace it to every vblank instead
+        // (from ZendNevs's fork). EDEN_NX2_PACE_ONE=0 keeps the interval it asks for.
+        static const char* const pace_one_env = std::getenv("EDEN_NX2_PACE_ONE");
+        if (process.GetProgramId() == 0x040074A01BF12000ULL &&
+            Settings::values.dk_dynamic_fps.GetValue() &&
+            !(pace_one_env != nullptr && pace_one_env[0] == '0')) {
+            swap_interval = 1;
+        }
         if (forced_interval != 0) {
             swap_interval = forced_interval;
         }
