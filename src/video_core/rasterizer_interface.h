@@ -91,6 +91,11 @@ public:
     /// Release all pending fences.
     virtual void ReleaseFences(bool force = true) = 0;
 
+    /// Writes the region's query reports to guest memory, waiting for pending host results.
+    virtual void FlushQueryResults(DAddr addr, u64 size) {
+        FlushRegion(addr, size, VideoCommon::CacheType::QueryCache);
+    }
+
     /// Notify rasterizer that all caches should be flushed to Switch memory
     virtual void FlushAll() = 0;
 
@@ -117,6 +122,12 @@ public:
                                  VideoCommon::CacheType which = VideoCommon::CacheType::All) = 0;
 
     virtual RasterizerDownloadArea GetFlushArea(DAddr addr, u64 size) = 0;
+
+    /// Whether reports in the range wait for host query results not yet in guest memory.
+    [[nodiscard]] virtual bool HasPendingQueries([[maybe_unused]] DAddr addr,
+                                                 [[maybe_unused]] u64 size) {
+        return false;
+    }
 
     /// Notify rasterizer that any caches of the specified region should be invalidated
     virtual void InvalidateRegion(DAddr addr, u64 size,
