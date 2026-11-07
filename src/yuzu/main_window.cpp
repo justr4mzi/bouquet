@@ -2292,7 +2292,7 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
             session.ram =
                 QStringLiteral("%1 GiB").arg(double(memory) / (1024 * 1024 * 1024), 0, 'f', 1);
         }
-        const auto& device_info = QtCommon::system->Renderer().GetDeviceInfo();
+        const struct { std::string model, driver, api; } device_info{QtCommon::system->Renderer().GetDeviceVendor(), {}, Settings::values.renderer_backend.GetValue() == Settings::RendererBackend::Vulkan ? "Vulkan" : "OpenGL"};
         session.gpu = QString::fromStdString(device_info.model);
         session.driver = QString::fromStdString(device_info.driver);
         session.graphics_api = QString::fromStdString(device_info.api);
@@ -5040,7 +5040,7 @@ void MainWindow::UpdateStatusBar() {
     game_fps_label->setText(fpsText);
 
     // Frames sent to the display per second, over at least a second (the bar updates twice a second).
-    const u64 display_frames = QtCommon::system->GPU().Renderer().PresentedFrameCount();
+    const u64 display_frames = static_cast<u64>(QtCommon::system->GPU().Renderer().GetCurrentFrame());
     const auto now = std::chrono::steady_clock::now();
     if (display_frames_time == std::chrono::steady_clock::time_point{} ||
         display_frames < display_frames_seen) {
