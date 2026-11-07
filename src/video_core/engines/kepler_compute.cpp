@@ -542,10 +542,6 @@ bool KeplerCompute::DispatchNativeCompute(const NativeQmdScheduler::Descriptor& 
     regs.code_loc.address_high = qmd[49] & 0x1ffff;
     for (u32 slot = 0; slot < NumConstBuffers; ++slot) {
         const u32 high = qmd[33 + slot * 2];
-        if (high & 0x1ff00) {
-            LOG_ERROR(HW_GPU, "Native compute constant address exceeds supported GPU width");
-            return false;
-        }
         auto& buffer = launch_description.const_buffer_config[slot];
         buffer.address_low = qmd[32 + slot * 2];
         buffer.address_high.Assign(high & 0xff);
