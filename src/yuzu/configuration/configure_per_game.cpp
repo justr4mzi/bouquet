@@ -879,7 +879,7 @@ bool ConfigurePerGame::SaveNupMetadata(bool show_error) {
         }
         return false;
     }
-    FileSys::Nup::MetadataUpdate update;
+    FileSys::Nup::MetadataEdit update;
     if (title_changed) {
         update.title_name = new_title;
     }
@@ -889,11 +889,11 @@ bool ConfigurePerGame::SaveNupMetadata(bool show_error) {
     std::string error;
     addons_tab->SetFile(nullptr);
     file.reset();
-    const auto res = FileSys::Nup::UpdateMetadata(file_path, update, &error);
+    const auto res = FileSys::Nup::EditNupMetadata(file_path, update, &error);
     file = Core::GetGameFileFromPath(system.GetFilesystem(),
                                    Common::FS::PathToUTF8String(file_path));
     addons_tab->SetFile(file);
-    if (res != FileSys::Nup::PackResult::Success) {
+    if (res != FileSys::Nup::EditResult::Success && res != FileSys::Nup::EditResult::NoChange) {
         if (show_error) {
             QMessageBox::warning(
                 this, tr("Update NUP Metadata"),
