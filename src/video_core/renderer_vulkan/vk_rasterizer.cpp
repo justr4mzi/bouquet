@@ -24,7 +24,6 @@
 #include "common/logging.h"
 #include "common/scope_exit.h"
 #include "common/settings.h"
-#include "core/core.h"
 #include "video_core/buffer_cache/buffer_cache.h"
 #include "video_core/gpu_logging/gpu_logging.h"
 #include "video_core/control/channel_state.h"
@@ -52,6 +51,8 @@
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
 #include "video_core/nx2_profile.h"
+
+namespace Core { extern std::atomic<u64> g_nx2_present_count; }
 
 namespace Vulkan {
 
