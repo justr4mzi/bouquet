@@ -1,4 +1,4 @@
-# Switch NX2 - read when the Eglantine GUI starts.
+# Switch NX2 - read when the Hortensia GUI starts.
 # One NAME=VALUE per line. Lines starting with # are ignored.
 # A variable already set in the environment wins over this file.
 # Between files, the user copy (%APPDATA%\eden\nx2_switches.txt, or
@@ -54,8 +54,32 @@ EDEN_NX2_FENCE_BATCH=1
 # Force Mario Kart World swap interval (default is 1 to prevent 30 fps cap when dynamic FPS is off).
 #EDEN_NX2_MKW_SWAP_INTERVAL=2
 
+# Force Donkey Kong Bananza swap interval (default is 1 to prevent 30 fps cap when dynamic FPS is off).
+#EDEN_NX2_DK_SWAP_INTERVAL=2
+
 # Pin split GPU front/back threads to dedicated physical cores (default on for 6+ physical cores; set to 0 to disable).
 #EDEN_NX2_PIN_THREADS=0
 
+# Keep time-critical threads on P-cores of hybrid CPUs on Windows (default on; set to 0 to disable).
+#EDEN_HYBRID_CORES=0
+
 # Spin briefly in microseconds before parking Switch 2 guest CPU threads (default 50; set to 0 to disable).
 #EDEN_NX2_IDLE_SPIN_US=50
+
+# Skip re-scanning buffer ranges whose 4 MiB memory tracker region has had no CPU write since the last sync (default on; set to 0 to always scan).
+#EDEN_NX2_SYNC_SKIP=0
+
+# Read large (>= 64 KiB) linear texture uploads from guest memory on the Vulkan worker thread (default on; set to 0 to read on the GPU thread).
+#EDEN_NX2_DEFER_UPLOADS=0
+
+# Keep CurrentGraphicsPipeline when no pipeline-relevant Maxwell3D register has changed (default on; set to 0 to always refresh, or verify to audit).
+#EDEN_NX2_PIPELINE_SKIP=0
+
+# Skip Pokemon Pokopia's far shadow cascade draws to save ~17% GPU thread work in town (default on for Pokopia; set to 1 to keep far cascade).
+#EDEN_NX2_SHADOW_FAR=1
+
+# Replace Ocarina of Time's 11-pass title movie neural network with a direct surface copy (default on; set to 0 to disable).
+#EDEN_NX2_UPSCALE_REPLACE=0
+
+# Report Variable Refresh Rate (VRR) display capability to Switch 2 SDKs (default on; set to 0 to disable).
+#EDEN_NX2_REPORT_VRR=0
