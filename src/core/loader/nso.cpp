@@ -57,11 +57,12 @@ constexpr u32 PageAlignSize(u32 size) {
 // 60 Hz display and its speed swings with the frame rate; told VRR works, it enables it and times
 // its frames itself. Make the exported function store true and succeed (any SDK version: found by
 // name). EDEN_NX2_REPORT_VRR=0 leaves it alone.
-static void ReportVrrSupported(std::span<u8> image, std::string_view module_name) {
-    static const bool enabled = [] {
-        const char* value = std::getenv("EDEN_NX2_REPORT_VRR");
-        return value == nullptr || value[0] != '0';
-    }();
+static void ReportVrrSupported(std::span<u8> image, std::string_view module_name, u64 program_id) {
+    static const char* const value = std::getenv("EDEN_NX2_REPORT_VRR");
+    const bool is_mkw = program_id == Settings::MarioKartWorldProgramId ||
+                        program_id == 0x0400380020056000ULL ||
+                        program_id == 0x0400C3F00006E000ULL;
+    const bool enabled = value != nullptr ? value[0] != '0' : !is_mkw;
     if (!enabled || image.size() < 8) {
         return;
     }
@@ -262,7 +263,7 @@ std::optional<VAddr> AppLoader_NSO::LoadModule(Kernel::KProcess& process, Core::
         std::copy(pi_header.begin() + sizeof(NSOHeader), pi_header.end(), patchable_section.data());
     }
     if (name == "sdk") {
-        ReportVrrSupported(std::span{codeset.memory}.subspan(module_start), name);
+        ReportVrrSupported(std::span{codeset.memory}.subspan(module_start), name, process.GetProgramId());
     }
 
     // From ZendNevs's Eglantine fork, via monteger8/Eglantine-DKB.

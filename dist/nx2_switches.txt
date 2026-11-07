@@ -81,5 +81,5 @@ EDEN_NX2_FENCE_BATCH=1
 # Replace Ocarina of Time's 11-pass title movie neural network with a direct surface copy (default on; set to 0 to disable).
 #EDEN_NX2_UPSCALE_REPLACE=0
 
-# Report Variable Refresh Rate (VRR) display capability to Switch 2 SDKs (default on; set to 0 to disable).
+# Report Variable Refresh Rate (VRR) display capability to Switch 2 SDKs (disabled by default for Mario Kart World; set to 1 to force on or 0 to disable).
 #EDEN_NX2_REPORT_VRR=0
