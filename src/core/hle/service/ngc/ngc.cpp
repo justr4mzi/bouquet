@@ -12,7 +12,6 @@
 #include "core/hle/service/cmif_types.h"
 #include "core/hle/service/cmif_serialization.h"
 #include "core/hle/service/ipc_helpers.h"
-#include "core/hle/service/ngc/guest_hid.h"
 #include "core/hle/service/ngc/ngc.h"
 #include "core/hle/service/server_manager.h"
 #include "core/hle/service/service.h"
@@ -180,11 +179,9 @@ static_assert(sizeof(SaveDataHandle) == 0x08);
 
 class IUserShimScopedObject final : public ServiceFramework<IUserShimScopedObject> {
 public:
-    explicit IUserShimScopedObject(Core::System& system_)
-        : ServiceFramework(system_, "IUserShimScopedObject") {
+    explicit IUserShimScopedObject(Core::System& system_) : ServiceFramework(system_, "IUserShimScopedObject") {
         // clang-format off
         static const FunctionInfo functions[] = {
-            {300, &IUserShimScopedObject::GetGuestHidSharedMemory, "GetGuestHidSharedMemory"},
             {450, nullptr, "InitializeForSaveData"},
             {451, nullptr, "FinalizeForSaveData"},
             {452, D<&IUserShimScopedObject::OpenSaveData>, "OpenSaveData"},
@@ -196,16 +193,6 @@ public:
         };
         // clang-format on
         RegisterHandlers(functions);
-    }
-
-    ~IUserShimScopedObject() override {
-        if (guest_hid_memory) {
-            guest_hid_memory->Close(kernel);
-        }
-    }
-
-    void GetGuestHidSharedMemory(HLERequestContext& ctx) {
-        ReplyGuestHidSharedMemory(ctx, system, guest_hid_memory);
     }
 
     Result OpenSaveData(Account::Uid unk0, Out<SaveDataHandle> unk1) {
@@ -223,14 +210,7 @@ public:
         // to implement
         R_SUCCEED();
     }
-
-private:
-    Kernel::KSharedMemory* guest_hid_memory{};
 };
-
-std::shared_ptr<ServiceFrameworkBase> CreateStreamPlayUserService(Core::System& system) {
-    return std::make_shared<IUserShimScopedObject>(system);
-}
 
 class IUserService final : public ServiceFramework<IUserService> {
 public:
@@ -242,9 +222,9 @@ public:
         // clang-format on
         RegisterHandlers(functions);
     }
-    Result Cmd0(u32 unk0, OutInterface<ServiceFrameworkBase> out_interface) {
+    Result Cmd0(u32 unk0, OutInterface<IUserShimScopedObject> out_interface) {
         LOG_WARNING(Service_NGC, "stubbed");
-        *out_interface = CreateStreamPlayUserService(system);
+        *out_interface = std::make_shared<IUserShimScopedObject>(system);
         R_SUCCEED();
     }
 };

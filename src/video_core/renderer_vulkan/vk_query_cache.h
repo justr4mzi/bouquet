@@ -62,7 +62,6 @@ public:
     void View3DRegs(Func&& func);
 
 private:
-    void TraceConditionalRendering(const char* path, bool handled, DAddr address, DAddr address_2 = 0);
     void HostConditionalRenderingCompareValueImpl(VideoCommon::LookupData object, bool is_equal);
     void HostConditionalRenderingCompareBCImpl(DAddr address, bool is_equal,
                                                bool compare_to_zero = false);

@@ -75,7 +75,6 @@ enum class ArbitrationType : u32 {
     WaitIfLessThan = 0,
     DecrementAndWaitIfLessThan = 1,
     WaitIfEqual = 2,
-    WaitIfEqual64 = 3,
 };
 
 enum class YieldType : s64 {

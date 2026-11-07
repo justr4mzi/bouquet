@@ -26,7 +26,6 @@ add_library(shader_recompiler STATIC
     backend/spirv/emit_spirv_shared_memory.cpp
     backend/spirv/emit_spirv_mesh.cpp
     backend/spirv/emit_spirv_special.cpp
-    backend/spirv/emit_spirv_tensor.cpp
     backend/spirv/emit_spirv_undefined.cpp
     backend/spirv/emit_spirv_warp.cpp
     backend/spirv/spirv_emit_context.cpp
@@ -117,7 +116,6 @@ add_library(shader_recompiler STATIC
     frontend/maxwell/translate/impl/impl.cpp
     frontend/maxwell/translate/impl/impl.h
     frontend/maxwell/translate/impl/integer_add.cpp
-    frontend/maxwell/translate/impl/integer_byte_permute.cpp
     frontend/maxwell/translate/impl/integer_add_three_input.cpp
     frontend/maxwell/translate/impl/integer_compare.cpp
     frontend/maxwell/translate/impl/integer_compare_and_set.cpp
@@ -152,7 +150,6 @@ add_library(shader_recompiler STATIC
     frontend/maxwell/translate/impl/select_source_with_predicate.cpp
     frontend/maxwell/translate/impl/surface_atomic_operations.cpp
     frontend/maxwell/translate/impl/surface_load_store.cpp
-    frontend/maxwell/translate/impl/tensor_mul_add.cpp
     frontend/maxwell/translate/impl/texture_fetch.cpp
     frontend/maxwell/translate/impl/texture_fetch_swizzled.cpp
     frontend/maxwell/translate/impl/texture_gather.cpp

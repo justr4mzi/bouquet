@@ -81,15 +81,12 @@ VK_DEFINE_HANDLE(VmaPool)
     FEATURE(KHR, PipelineExecutableProperties, PIPELINE_EXECUTABLE_PROPERTIES,                     \
             pipeline_executable_properties)                                                        \
     FEATURE(KHR, ShaderQuadControl, SHADER_QUAD_CONTROL, shader_quad_control)                      \
-    FEATURE(KHR, ShaderMaximalReconvergence, SHADER_MAXIMAL_RECONVERGENCE,                        \
-            shader_maximal_reconvergence)                                                        \
     FEATURE(KHR, WorkgroupMemoryExplicitLayout, WORKGROUP_MEMORY_EXPLICIT_LAYOUT,                  \
             workgroup_memory_explicit_layout)
 
 
 // Define miscellaneous extensions which may be used by the implementation here.
 #define FOR_EACH_VK_EXTENSION(EXTENSION)                                                           \
-    EXTENSION(AMD, BUFFER_MARKER, buffer_marker)                                                   \
     EXTENSION(EXT, ASTC_DECODE_MODE, astc_decode_mode)                                             \
     EXTENSION(EXT, CONDITIONAL_RENDERING, conditional_rendering)                                   \
     EXTENSION(EXT, CONSERVATIVE_RASTERIZATION, conservative_rasterization)                         \
@@ -482,11 +479,6 @@ FN_MAX_LIMIT_LIST
 
     /// Returns true if the device supports float16 natively.
     bool IsFloat16Supported() const {
-        return features.shader_float16_int8.shaderFloat16 && !has_broken_float16_math;
-    }
-
-    /// Returns true if float16 shaders can run at all, even where game shaders must avoid them.
-    bool IsFloat16Enabled() const {
         return features.shader_float16_int8.shaderFloat16;
     }
 
@@ -533,19 +525,6 @@ FN_MAX_LIMIT_LIST
     /// Returns true if the device can be forced to use the guest warp size.
     bool IsGuestWarpSizeSupported(VkShaderStageFlagBits stage) const {
         return properties.subgroup_size_control.requiredSubgroupSizeStages & stage;
-    }
-
-    /// AMDVLK's dynamic Shuffle workaround is safe only with a forced 32-lane graphics subgroup.
-    bool NeedsGraphicsSubgroupShuffleWorkaround(VkShaderStageFlagBits stage) const {
-        const auto driver_id = GetDriverID();
-        const bool affected_driver = driver_id == VK_DRIVER_ID_AMD_PROPRIETARY ||
-                                     driver_id == VK_DRIVER_ID_AMD_OPEN_SOURCE ||
-                                     driver_id == VK_DRIVER_ID_SAMSUNG_PROPRIETARY;
-        // VUID-VkPipelineShaderStageCreateInfo-pNext-02756 limits task/mesh local sizes to
-        // requiredSubgroupSize * maxComputeWorkgroupSubgroups; allowed sizes can exceed this at 32.
-        return affected_driver && stage != VK_SHADER_STAGE_COMPUTE_BIT &&
-               stage != VK_SHADER_STAGE_TASK_BIT_EXT && stage != VK_SHADER_STAGE_MESH_BIT_EXT &&
-               IsExtSubgroupSizeControlSupported() && IsGuestWarpSizeSupported(stage);
     }
 
     /// Returns true if the device supports the provided subgroup feature.
@@ -682,16 +661,6 @@ FN_MAX_LIMIT_LIST
     /// Returns true if the device supports VK_KHR_shader_quad_control.
     bool IsKhrShaderQuadControlSupported() const {
         return extensions.shader_quad_control && features.shader_quad_control.shaderQuadControl;
-    }
-
-    /// Returns true if the device can build tessellation pipelines.
-    bool IsTessellationSupported() const {
-        return features.features.tessellationShader;
-    }
-
-    /// Returns the largest patch size (control points, and TCS output vertices) a pipeline allows.
-    u32 GetMaxTessellationPatchSize() const {
-        return properties.properties.limits.maxTessellationPatchSize;
     }
 
     /// Returns true if the device supports task and mesh shaders (VK_EXT_mesh_shader).
@@ -1061,10 +1030,6 @@ FN_MAX_LIMIT_LIST
         return extensions.memory_budget;
     }
 
-    bool IsAmdBufferMarkerSupported() const {
-        return extensions.buffer_marker;
-    }
-
     u64 GetDeviceMemoryUsage() const;
 
     /// The driver's current memory budget for this process (VK_EXT_memory_budget), in
@@ -1346,7 +1311,6 @@ private:
     bool is_non_gpu{};                         ///< Is SoftwareRasterizer, FPGA, non-GPU device.
     bool has_broken_compute{};                 ///< Compute shaders can cause crashes
     bool has_broken_cube_compatibility{};      ///< Has broken cube compatibility bit
-    bool has_broken_float16_math{};            ///< Game and filter shaders must avoid float16
     bool has_broken_descriptor_aliasing{};     ///< Miscompiles descriptors aliased on one binding
     bool has_broken_parallel_compiling{};      ///< Has broken parallel shader compiling.
     bool has_renderdoc{};                      ///< Has RenderDoc attached

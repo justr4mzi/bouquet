@@ -188,10 +188,6 @@ bool Swapchain::AcquireNextImage(bool may_flush) {
         LOG_ERROR(Render_Vulkan, "vkAcquireNextImageKHR returned {}", string_VkResult(result));
         break;
     }
-    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        // No image was acquired, so image_index is stale: the caller recreates and tries again.
-        return true;
-    }
 
     const auto wait_with_frame_pacing = [this, may_flush] {
     switch (Settings::values.frame_pacing_mode.GetValue()) {

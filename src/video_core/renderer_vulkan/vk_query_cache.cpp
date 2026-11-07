@@ -18,7 +18,6 @@
 #include "common/common_types.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/host1x/gpu_device_memory_manager.h"
-#include "video_core/query_cache/frame_trace.h"
 #include "video_core/query_cache/query_cache.h"
 #include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
@@ -211,17 +210,8 @@ public:
         last_accumulation_checkpoint = (std::max)(last_accumulation_checkpoint, num_slots_used);
     }
 
-    // Called at each submission. The running query carries the count across it: a guest's
-    // reset-to-report window can span one.
     void CloseCounter() override {
         PauseCounter();
-        // A title that counts without resetting or reporting grows the query by a slot at every
-        // submission and render pass, and the query keeps every bank it touches alive. Ocarina of
-        // Time's title screen and file select reached 16,384 slots over 64 banks (its gameplay
-        // windows span at most 36 slots). Past a bank, drop the count as a reset would.
-        if (current_query && current_query->size_slots > SamplesQueryBank::BANK_SIZE) {
-            ResetCounter();
-        }
     }
 
     bool HasPendingSync() const override {
@@ -262,11 +252,6 @@ public:
         size_t resolve_buffer_index = ObtainBuffer<true>(num_slots_used);
         resolve_buffers.push_back(resolve_buffer_index);
         size_t base_offset = 0;
-        // AMD's drivers wait on each query of a WAIT_BIT copy separately (3.8 us per query, ~5 ms
-        // a frame in Ocarina). Queries complete in order on the queue, so waiting for the newest
-        // one is enough before copying the range without the wait.
-        const bool wait_on_last =
-            driver_id == VK_DRIVER_ID_AMD_PROPRIETARY || driver_id == VK_DRIVER_ID_AMD_OPEN_SOURCE;
 
         ApplyBanksWideOp<true>(pending_sync, [&](SamplesQueryBank* bank, size_t start,
                                                  size_t amount) {
@@ -274,7 +259,7 @@ public:
             auto& resolve_buffer = buffers[resolve_buffer_index];
             VkQueryPool query_pool = bank->GetInnerPool();
             scheduler.RequestOutsideRenderPassOperationContext();
-            scheduler.Record([start, amount, base_offset, query_pool, wait_on_last,
+            scheduler.Record([start, amount, base_offset, query_pool,
                               buffer = *resolve_buffer](vk::CommandBuffer cmdbuf) {
                 const VkBufferMemoryBarrier copy_query_pool_barrier{
                     .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
@@ -288,37 +273,10 @@ public:
                     .size = amount * SamplesQueryBank::QUERY_SIZE,
                 };
 
-                if (!wait_on_last || amount == 1) {
-                    cmdbuf.CopyQueryPoolResults(
-                        query_pool, static_cast<u32>(start), static_cast<u32>(amount), buffer,
-                        static_cast<u32>(base_offset), SamplesQueryBank::QUERY_SIZE,
-                        VK_QUERY_RESULT_WAIT_BIT | VK_QUERY_RESULT_64_BIT);
-                } else {
-                    const size_t last = amount - 1;
-                    const VkDeviceSize last_offset =
-                        base_offset + last * SamplesQueryBank::QUERY_SIZE;
-                    cmdbuf.CopyQueryPoolResults(query_pool, static_cast<u32>(start + last), 1,
-                                                buffer, last_offset, SamplesQueryBank::QUERY_SIZE,
-                                                VK_QUERY_RESULT_WAIT_BIT | VK_QUERY_RESULT_64_BIT);
-                    // Orders the unwaited copy after the waited one.
-                    const VkBufferMemoryBarrier waited_barrier{
-                        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-                        .pNext = nullptr,
-                        .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-                        .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-                        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                        .buffer = buffer,
-                        .offset = last_offset,
-                        .size = SamplesQueryBank::QUERY_SIZE,
-                    };
-                    cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                           VK_PIPELINE_STAGE_TRANSFER_BIT, 0, waited_barrier);
-                    cmdbuf.CopyQueryPoolResults(
-                        query_pool, static_cast<u32>(start), static_cast<u32>(last), buffer,
-                        static_cast<u32>(base_offset), SamplesQueryBank::QUERY_SIZE,
-                        VK_QUERY_RESULT_64_BIT);
-                }
+                cmdbuf.CopyQueryPoolResults(
+                    query_pool, static_cast<u32>(start), static_cast<u32>(amount), buffer,
+                    static_cast<u32>(base_offset), SamplesQueryBank::QUERY_SIZE,
+                    VK_QUERY_RESULT_WAIT_BIT | VK_QUERY_RESULT_64_BIT);
                 cmdbuf.PipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT,
                                        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, copy_query_pool_barrier);
             });
@@ -445,14 +403,6 @@ public:
             });
             query->value = total;
             query->flags |= VideoCommon::QueryFlagBits::IsFinalValueSynced;
-            if (const u64 trace =
-                    VideoCommon::QueryTrace::Sample(VideoCommon::QueryTrace::Event::HostResult)) {
-                LOG_INFO(Render_Vulkan,
-                         "DKB_QUERY host-result n={} device={:#x} stream={} slot={} "
-                         "value={:#x} flags={:#x} source=occlusion pre_amend=true",
-                         trace, query->guest_address, GetId(), q, query->value,
-                         static_cast<u32>(query->flags));
-            }
         }
     }
 
@@ -952,14 +902,6 @@ public:
             std::memcpy(&result, staging_ref.mapped_span.data() + offset_base, sizeof(u32));
             query->value = static_cast<u64>(result);
             query->flags |= VideoCommon::QueryFlagBits::IsFinalValueSynced;
-            if (const u64 trace =
-                    VideoCommon::QueryTrace::Sample(VideoCommon::QueryTrace::Event::HostResult)) {
-                LOG_INFO(Render_Vulkan,
-                         "DKB_QUERY host-result n={} device={:#x} stream={} slot={} "
-                         "value={:#x} flags={:#x} source=transform-feedback pre_amend=true",
-                         trace, query->guest_address, GetId(), q, query->value,
-                         static_cast<u32>(query->flags));
-            }
             offset_base += TFBQueryBank::QUERY_SIZE;
         }
 
@@ -1524,31 +1466,12 @@ void QueryCacheRuntime::HostConditionalRenderingCompareBCImpl(DAddr address, boo
     }
 }
 
-void QueryCacheRuntime::TraceConditionalRendering(const char* path, bool handled, DAddr address,
-                                                 DAddr address_2) {
-    if (const u64 trace =
-            VideoCommon::QueryTrace::Sample(VideoCommon::QueryTrace::Event::VulkanCondition)) {
-        const auto* engine = impl->maxwell3d;
-        LOG_INFO(Render_Vulkan,
-                 "DKB_CONDITION vulkan n={} gpu={:#x} mode={} device={:#x}/{:#x} path={} "
-                 "handled={} hcr_set={} decision={} predicate=unknown inverted={}",
-                 trace, engine ? engine->regs.render_enable.Address() : 0,
-                 engine ? static_cast<u32>(engine->regs.render_enable.mode) : 0, address, address_2,
-                 path, handled, impl->hcr_is_set,
-                 !handled ? "cpu-fallback" : impl->hcr_is_set ? "GPU-deferred" : "execute-bypass",
-                 impl->hcr_is_set &&
-                     (impl->hcr_setup.flags & VK_CONDITIONAL_RENDERING_INVERTED_BIT_EXT) != 0);
-    }
-}
-
 bool QueryCacheRuntime::HostConditionalRenderingCompareValue(VideoCommon::LookupData object_1,
                                                              [[maybe_unused]] bool qc_dirty) {
     if (!impl->device.IsExtConditionalRendering()) {
-        TraceConditionalRendering("extension-unavailable", false, object_1.address);
         return false;
     }
     HostConditionalRenderingCompareBCImpl(object_1.address, true, true);
-    TraceConditionalRendering("resolve-zero", true, object_1.address);
     return true;
 }
 
@@ -1556,7 +1479,6 @@ bool QueryCacheRuntime::HostConditionalRenderingCompareValues(VideoCommon::Looku
                                                               VideoCommon::LookupData object_2,
                                                               bool qc_dirty, bool equal_check) {
     if (!impl->device.IsExtConditionalRendering()) {
-        TraceConditionalRendering("extension-unavailable", false, object_1.address, object_2.address);
         return false;
     }
 
@@ -1587,13 +1509,11 @@ bool QueryCacheRuntime::HostConditionalRenderingCompareValues(VideoCommon::Looku
 
     if (!is_in_ac[0] && !is_in_ac[1]) {
         EndHostConditionalRendering();
-        TraceConditionalRendering("uncached", false, object_1.address, object_2.address);
         return false;
     }
 
     if (!qc_dirty && !is_in_bc[0] && !is_in_bc[1]) {
         EndHostConditionalRendering();
-        TraceConditionalRendering("guest-synchronized", false, object_1.address, object_2.address);
         return false;
     }
 
@@ -1602,7 +1522,6 @@ bool QueryCacheRuntime::HostConditionalRenderingCompareValues(VideoCommon::Looku
 
     if ((!is_gpu_high && driver_id == VK_DRIVER_ID_INTEL_PROPRIETARY_WINDOWS) || driver_id == VK_DRIVER_ID_QUALCOMM_PROPRIETARY || driver_id == VK_DRIVER_ID_ARM_PROPRIETARY || driver_id == VK_DRIVER_ID_MESA_TURNIP) {
         EndHostConditionalRendering();
-        TraceConditionalRendering("driver-bypass", true, object_1.address, object_2.address);
         return true;
     }
 
@@ -1614,25 +1533,20 @@ bool QueryCacheRuntime::HostConditionalRenderingCompareValues(VideoCommon::Looku
         if (is_null[i]) {
             size_t j = (i + 1) % 2;
             HostConditionalRenderingCompareValueImpl(*objects[j], equal_check);
-            TraceConditionalRendering(i == 0 ? "initial-zero" : "current-zero", true,
-                                      object_1.address, object_2.address);
             return true;
         }
     }
 
     if (!is_gpu_high) {
         EndHostConditionalRendering();
-        TraceConditionalRendering("accuracy-bypass", true, object_1.address, object_2.address);
         return true;
     }
 
     if (!is_in_bc[0] && !is_in_bc[1]) {
         EndHostConditionalRendering();
-        TraceConditionalRendering("query-cache-bypass", true, object_1.address, object_2.address);
         return true;
     }
     HostConditionalRenderingCompareBCImpl(object_1.address, equal_check);
-    TraceConditionalRendering("resolve-compare", true, object_1.address, object_2.address);
     return true;
 }
 

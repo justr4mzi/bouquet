@@ -11,10 +11,6 @@ namespace Tegra::Host1x {
 
 class H264PacketConverter {
 public:
-    void Reset() {
-        format = Format::Unknown;
-    }
-
     void Convert(std::span<u8> data) {
         if (format == Format::AnnexB) {
             return;
@@ -39,7 +35,7 @@ public:
             data[offset + 1] = 0;
             data[offset + 2] = 0;
             data[offset + 3] = 1;
-            offset += std::size_t{4} + length;
+            offset += 4 + length;
         }
     }
 

@@ -70,28 +70,6 @@ public:
         });
     }
 
-    /// A value that stays the same while no page of the region becomes CPU modified, or ~0 when
-    /// part of it is not tracked yet (the sum of its 4 MiB regions' epochs, which only grow).
-    [[nodiscard]] u64 CpuWriteEpoch(VAddr cpu_addr, u64 size) const noexcept {
-        if (size == 0) {
-            return 0;
-        }
-        const u64 first = cpu_addr >> HIGHER_PAGE_BITS;
-        const u64 last = (cpu_addr + size - 1) >> HIGHER_PAGE_BITS;
-        if (last >= NUM_HIGH_PAGES) {
-            return ~u64{0};
-        }
-        u64 sum = 0;
-        for (u64 page = first; page <= last; ++page) {
-            const Manager* const manager = top_tier[page];
-            if (manager == nullptr) {
-                return ~u64{0};
-            }
-            sum += manager->cpu_epoch;
-        }
-        return sum;
-    }
-
     /// Mark region as CPU modified, notifying the device_tracker about this change
     void MarkRegionAsCpuModified(VAddr dirty_cpu_addr, u64 query_size) {
         IteratePages<true>(dirty_cpu_addr, query_size, [](Manager* manager, u64 offset, size_t size) {
@@ -180,14 +158,6 @@ public:
         });
     }
 
-    /// Call 'func' for each range marked as Preflushable
-    template <typename Func>
-    void ForEachPreflushableRange(VAddr query_cpu_range, u64 query_size, Func&& func) {
-        IteratePages<false>(query_cpu_range, query_size, [&func](Manager* manager, u64 offset, size_t size) {
-            manager->ForEachModifiedRange(Type::Preflushable, false, manager->cpu_addr + offset, size, func);
-        });
-    }
-
     /// Call 'func' for each GPU modified range and unmark those pages as GPU modified
     template <typename Func>
     void ForEachDownloadRange(VAddr query_cpu_range, u64 query_size, bool clear, Func&& func) {
@@ -209,35 +179,6 @@ public:
         IteratePages<false>(query_cpu_range, query_size, [&func](Manager* manager, u64 offset, size_t size) {
             manager->ForEachModifiedRange(Type::GPU, true, manager->cpu_addr + offset, size, func);
         });
-    }
-
-    /// ForEachUploadRange without the clean words (word_manager.h) at either end of each manager's
-    /// part of the range: they have nothing to find or change. A per-word form of PR #161's skip.
-    template <typename Func>
-    void ForEachDirtyUploadRange(VAddr query_cpu_range, u64 query_size, Func&& func) {
-        IteratePages<true>(query_cpu_range, query_size, [&func](Manager* manager, u64 offset, size_t size) {
-            const u64 dirty =
-                manager->DirtyWords(offset / BYTES_PER_WORD, (offset + size - 1) / BYTES_PER_WORD);
-            if (dirty == 0) {
-                return;
-            }
-            const u64 begin = (std::max<u64>)(offset, std::countr_zero(dirty) * BYTES_PER_WORD);
-            const u64 end =
-                (std::min<u64>)(offset + size, (64 - std::countl_zero(dirty)) * BYTES_PER_WORD);
-            manager->ForEachModifiedRange(Type::CPU, true, manager->cpu_addr + begin,
-                                          static_cast<s64>(end - begin), func);
-        });
-    }
-    /// Verify mode: true when the clean words of the managers over a range match a recount.
-    [[nodiscard]] bool CleanWordsHold(VAddr query_cpu_addr, u64 query_size) const noexcept {
-        const size_t first = query_cpu_addr >> HIGHER_PAGE_BITS;
-        const size_t last = (query_cpu_addr + (std::max<u64>)(query_size, 1) - 1) >> HIGHER_PAGE_BITS;
-        for (size_t page_index = first; page_index <= last; ++page_index) {
-            if (top_tier[page_index] && !top_tier[page_index]->CleanWordsHold()) {
-                return false;
-            }
-        }
-        return true;
     }
 
 private:

@@ -8,12 +8,10 @@
 #include "common/fs/file.h"
 #include "common/fs/fs.h"
 #include "common/fs/path_util.h"
-#include "common/logging.h"
 #include "common/settings.h"
 #include "video_core/renderer_vulkan/present/frame_gen.h"
 #include "video_core/renderer_vulkan/present/util.h"
 #include "video_core/renderer_vulkan/vk_present_manager.h"
-#include "video_core/vulkan_common/vk_enum_string_helper.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 
@@ -82,7 +80,7 @@ void WritePortablePixmap(const std::filesystem::path& path, const std::string& m
 void WriteGrayscalePgm(const std::filesystem::path& path, VkExtent2D extent,
                        std::span<const u8> pixels) {
     const size_t expected = static_cast<size_t>(extent.width) * extent.height;
-    WritePortablePixmap(path, "P5", extent, pixels.subspan(0, (std::min)(expected, pixels.size())));
+    WritePortablePixmap(path, "P5", extent, pixels.subspan(0, std::min(expected, pixels.size())));
 }
 
 void WriteRaw(const std::filesystem::path& path, std::span<const u8> pixels) {
@@ -204,19 +202,6 @@ void FrameGen::Process(const Device& device, Frame* frame, VkFormat format,
         shaders.emplace(device);
     }
 
-    // Both settings can change mid-game (status bar button): LSFG is unavailable only while it is
-    // the selected type and Lossless.dll's shaders didn't load.
-    const auto type = Settings::values.frame_gen_type.GetValue();
-    unavailable = type != Settings::FrameGenType::Fsr3 && !shaders->IsValid();
-    if (!Settings::values.frame_gen.GetValue()) {
-        reported = 0;
-        frames_without_storage = 0;
-    } else if (unavailable && (reported & REPORTED_NO_LSFG) == 0) {
-        reported |= REPORTED_NO_LSFG;
-        LOG_WARNING(Render_Vulkan,
-                    "Frame generation is off: Lossless Scaling (LSFG) is selected but Lossless.dll "
-                    "was not loaded from the lossless folder. Pick the built-in type or add the DLL.");
-    }
     if (unavailable || !Settings::values.frame_gen.GetValue()) {
         if (chain || fsr3_chain) {
             scheduler.Finish();
@@ -227,28 +212,23 @@ void FrameGen::Process(const Device& device, Frame* frame, VkFormat format,
         return;
     }
 
-    if (!frame->storage_view) {
-        warm_streak = 0;
-        // A frame gets its storage view at its next present; after that, none means the
-        // display image format can't be written by compute shaders on this GPU.
-        if (++frames_without_storage == 120 && (reported & REPORTED_NO_STORAGE) == 0) {
-            reported |= REPORTED_NO_STORAGE;
-            LOG_WARNING(Render_Vulkan,
-                        "Frame generation can't run: this GPU can't write the display image "
-                        "format {} from compute shaders",
-                        string_VkFormat(format));
-        }
+    if (!shaders->IsValid() && Settings::values.frame_gen_type.GetValue() != Settings::FrameGenType::Fsr3) {
+        unavailable = true;
         return;
     }
-    frames_without_storage = 0;
 
-    peak_guest_extent.width = (std::max)(peak_guest_extent.width, guest_extent.width);
-    peak_guest_extent.height = (std::max)(peak_guest_extent.height, guest_extent.height);
+    if (!frame->storage_view) {
+        warm_streak = 0;
+        return;
+    }
+
+    peak_guest_extent.width = std::max(peak_guest_extent.width, guest_extent.width);
+    peak_guest_extent.height = std::max(peak_guest_extent.height, guest_extent.height);
 
     const VkExtent2D extent{.width = frame->width, .height = frame->height};
     const f32 flow_scale = ConfiguredFlowScale(peak_guest_extent, extent);
     if ((!chain && !fsr3_chain) || built_extent.width != extent.width || built_extent.height != extent.height ||
-        built_format != format || built_flow_scale != flow_scale || built_type != type) {
+        built_format != format || built_flow_scale != flow_scale) {
         Rebuild(device, extent, format, flow_scale);
     }
 
@@ -259,14 +239,8 @@ void FrameGen::Process(const Device& device, Frame* frame, VkFormat format,
     const bool warm = plan.warm && count + 1 >= LSFG_REQUIRED_FRAMES;
     warm_streak = warm ? warm_streak + 1 : 0;
     generated = warm && warm_streak >= LSFG_RECURRENCE_FRAMES && plan.generations > 0;
-    if (generated && (reported & REPORTED_RUNNING) == 0) {
-        reported |= REPORTED_RUNNING;
-        LOG_INFO(Render_Vulkan, "Frame generation running: {} generated frame(s) per game frame ({})",
-                 plan.generations,
-                 type == Settings::FrameGenType::Fsr3 ? "built-in optical flow" : "LSFG");
-    }
 
-    const bool use_fsr3 = built_type == Settings::FrameGenType::Fsr3;
+    const bool use_fsr3 = Settings::values.frame_gen_type.GetValue() == Settings::FrameGenType::Fsr3;
 
     if (use_fsr3 && fsr3_chain) {
         scheduler.RequestOutsideRenderPassOperationContext();
@@ -305,15 +279,14 @@ size_t FrameGen::GeneratedFrameCount() const {
 }
 
 void FrameGen::GenerateInto(const Device& device, Frame* destination, size_t generation) {
-    const bool use_fsr3 = built_type == Settings::FrameGenType::Fsr3;
+    const bool use_fsr3 = Settings::values.frame_gen_type.GetValue() == Settings::FrameGenType::Fsr3;
 
     if (use_fsr3 && fsr3_chain) {
         const f32 blend = static_cast<f32>(generation + 1) / static_cast<f32>(last_generations + 1);
         const f32 flow_scale = ConfiguredFlowScale(peak_guest_extent, built_extent);
 
         scheduler.RequestOutsideRenderPassOperationContext();
-        fsr3_chain->Generate(device, scheduler, *destination->image, *destination->storage_view,
-                             blend, flow_scale);
+        fsr3_chain->Generate(device, scheduler, *destination->storage_view, blend, flow_scale);
     } else if (chain) {
         chain->SetTarget(device, last_generations, generation, destination->index,
                          *destination->storage_view);
@@ -336,9 +309,8 @@ void FrameGen::Rebuild(const Device& device, VkExtent2D extent, VkFormat format,
     fsr3_chain.reset();
 
     built_flow_scale = flow_scale;
-    built_type = Settings::values.frame_gen_type.GetValue();
 
-    if (built_type == Settings::FrameGenType::Fsr3) {
+    if (Settings::values.frame_gen_type.GetValue() == Settings::FrameGenType::Fsr3) {
         fsr3_chain.emplace(device, memory_allocator, extent, format);
     } else {
         chain.emplace(device, memory_allocator, *shaders, extent, format, built_flow_scale);

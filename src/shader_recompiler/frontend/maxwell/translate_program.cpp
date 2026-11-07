@@ -123,9 +123,7 @@ void AddNVNStorageBuffers(IR::Program& program) {
             continue;
         }
         const u32 offset{base + index * descriptor_size};
-        const auto it{std::ranges::find_if(descs, [=](const StorageBufferDescriptor& desc) {
-            return desc.cbuf_index == driver_cbuf && desc.cbuf_offset == offset;
-        })};
+        const auto it{std::ranges::find(descs, offset, &StorageBufferDescriptor::cbuf_offset)};
         if (it != descs.end()) {
             it->is_written |= program.info.stores_global_memory;
             continue;
@@ -486,7 +484,6 @@ IR::Program TranslateProgram(ObjectPool<IR::Inst>& inst_pool, ObjectPool<IR::Blo
 
     CollectInterpolationInfo(env, program);
     AddNVNStorageBuffers(program);
-    Optimization::LimitSampledTextureArrays(program, normalized_host_info);
     return program;
 }
 

@@ -3,15 +3,12 @@
 
 #pragma once
 
-#include <array>
 #include <atomic>
 #include <cstring>
 #include <functional>
 #include <memory>
-#include <optional>
 #include <thread>
 #include <type_traits>
-#include <unordered_map>
 
 #include "common/common_types.h"
 
@@ -24,31 +21,6 @@ class EngineInterface;
 }
 
 namespace VideoCommon {
-
-/// Why the split's front waited for its back (EDEN_NX2_GPU_PROFILE counts each).
-enum class DrainSite : u32 {
-    Other,
-    FetchDrain,     ///< EDEN_NX2_FETCH_DRAIN: before every entry
-    Acquire,        ///< A semaphore acquire reads the value the back may release
-    SemaphoreFlush, ///< The acquired semaphore is in the buffer cache
-    FenceRelease,   ///< The puller's acquires release the pending fences
-    ListWriters,    ///< GPU-written command lists: the dispatches and copies sent before them
-    ListSync,       ///< Command lists on draw-written pages: the work before the last host sync
-    ListFlush,      ///< Command lists on GPU-written pages: drain and flush the pages
-    MacroDmaRead,   ///< The front's macros read memory (MME DMA)
-    MacroDmaFlush,  ///< Those words are in the buffer cache
-    GpSyncFence,    ///< A GP entry's sync bit (sync_memory_operations)
-    Map,            ///< GPU memory maps before later command reads
-    FrontStart,     ///< The front takes an engine's macros over
-    FrontVerify,    ///< EDEN_NX2_FRONT_VERIFY
-    Count,
-};
-
-inline constexpr std::array<const char*, static_cast<size_t>(DrainSite::Count)> drain_site_names{
-    "other",       "fetch drain",     "acquire",    "semaphore flush", "fence release",
-    "list writers", "list sync",      "list flush", "macro dma read",  "macro dma flush",
-    "gp sync fence", "map",           "front start", "front verify",
-};
 
 // Splits the GPU thread in two (NX2_GPU_THREAD_SPLIT.md). The GPU thread (the front) takes the
 // CPU's commands, parses command lists and runs the puller; engine method calls and everything
@@ -76,26 +48,6 @@ public:
     /// Whether the calling thread is the split back thread.
     [[nodiscard]] static bool OnBackThread() {
         return on_back_thread;
-    }
-
-    /// Whether the calling thread is the back.
-    [[nodiscard]] static bool OnBackThread() {
-        return on_back_thread;
-    }
-    /// Called on the back before it sleeps waiting for work (the rasterizer submits deferred work).
-    void SetIdleHook(void (*hook)(void*), void* argument) {
-        idle_hook = hook;
-        idle_argument = argument;
-    }
-    /// Any thread: whether the back thread runs (false before it starts and once it stopped).
-    [[nodiscard]] bool BackRunning() const {
-        return back_running.load(std::memory_order_acquire);
-    }
-    /// Any thread: has the back call the idle hook soon, between entries or at once if it sleeps.
-    void RequestIdleHook() {
-        hook_requested.store(true, std::memory_order_seq_cst);
-        wake.fetch_add(1, std::memory_order_seq_cst);
-        wake.notify_one();
     }
 
     /// Starts the back thread once the split is wanted (EDEN_NX2_SPLIT=1, a Switch 2 title,
@@ -141,18 +93,6 @@ public:
         Commit(2 + payload);
     }
     void DeferFunction(std::function<void()>&& func);
-    /// Runs `func` on the back and waits for it: for work on back-owned state, such as a buffer
-    /// cache download that records into the Vulkan scheduler. A drained back still submits from
-    /// its idle hook, so the front never touches that state itself.
-    template <typename Func>
-    void Run(const Func& func, DrainSite site = DrainSite::Other) {
-        if (on_back_thread || !active) {
-            func();
-            return;
-        }
-        Defer(func);
-        Drain(site);
-    }
 
     /// EDEN_NX2_SPLIT_CHECK=1 (debug): reports, with its stack, a thread other than the back
     /// using back-owned state (the Vulkan scheduler) while the back runs entries.
@@ -163,7 +103,7 @@ public:
     /// Makes what was sent visible to the back.
     void Publish();
     /// Waits until the back executed everything sent so far.
-    void Drain(DrainSite site = DrainSite::Other);
+    void Drain();
 
     /// Compute or copy work was just sent: what can write GPU-written command lists.
     void NoteWriter() {
@@ -172,47 +112,8 @@ public:
     /// Waits until the back executed the compute and copy work sent so far (not what came after).
     /// Returns whether any of it was still queued.
     bool WaitForWriters();
-    /// A host-level wait was just sent (a syncpoint acquire, a host WFI, a GP entry with its sync
-    /// bit; semaphore acquires drain): the guest's GPU work before it is complete before the
-    /// commands after it are fetched.
-    void NoteSync() {
-        last_sync_position = write_position;
-    }
-    /// Waits until the back executed the work sent before the last NoteSync. Returns whether any
-    /// of it was still queued.
-    bool WaitForSync();
-
-    /// Semaphore releases the front sent that the back has not executed yet (front thread only).
-    /// An acquire one of them meets needs no drain: the back runs the release, then the work after
-    /// the acquire, in order, and the host queue keeps that order. Call right after sending one.
-    /// From sylvieistaken/selevet-eglantine.
-    void NoteQueuedRelease(u64 device_address, u32 payload) {
-        if (queued_releases.size() >= 4096) {
-            queued_releases.clear();
-        }
-        queued_releases[device_address] = {payload, write_position};
-    }
-    /// The payload of a queued release to `device_address` the back has not executed yet.
-    [[nodiscard]] std::optional<u32> QueuedRelease(u64 device_address) {
-        if (queued_releases.empty()) {
-            return std::nullopt;
-        }
-        const auto it = queued_releases.find(device_address);
-        if (it == queued_releases.end()) {
-            return std::nullopt;
-        }
-        // Executed (memory is the authority now), or sent before the split restarted.
-        if (consumed.load(std::memory_order_acquire) >= it->second.sent ||
-            it->second.sent > write_position) {
-            queued_releases.erase(it);
-            return std::nullopt;
-        }
-        return it->second.payload;
-    }
 
 private:
-    friend struct GpuSplitTestAccess;
-
     enum class Kind : u64 {
         Wrap,   ///< The rest of the ring is unused: continue at its start
         Engine, ///< The engine the next methods go to: word 1
@@ -257,21 +158,9 @@ private:
         }
     }
     void SwitchEngine(Tegra::Engines::EngineInterface* engine);
-    bool WaitFor(u64 target, DrainSite site);
-
-    /// One step of a front wait for the back to consume `target`.
-    void Backoff(u32 spins, u64 target);
-    /// After the back stored `consumed`: wakes a front sleeping in Backoff.
-    void NotifyFront() {
-        if (front_waiting.load(std::memory_order_seq_cst)) {
-            front_wake.fetch_add(1, std::memory_order_seq_cst);
-            front_wake.notify_one();
-        }
-    }
 
     void BackLoop(std::stop_token stop_token);
-    /// Runs the entry at `entry` (of the `words` published before the ring's end), returns its size.
-    size_t Execute(const u64* entry, size_t words);
+    size_t Execute(const u64* entry);
 
     Core::System* system{};
     bool active{};
@@ -279,14 +168,8 @@ private:
     std::unique_ptr<u64[]> ring;
 
     // Front side.
-    struct QueuedReleaseEntry {
-        u32 payload;
-        u64 sent;
-    };
-    std::unordered_map<u64, QueuedReleaseEntry> queued_releases;
     u64 write_position{};
     u64 last_writer_position{};
-    u64 last_sync_position{};
     u64 published_local{};
     u64 consumed_cache{};
     /// Words between publishes: small right after a drain, while the back has nothing to do.
@@ -297,23 +180,15 @@ private:
     Tegra::Engines::EngineInterface* back_engine{};
 
     static GpuSplit instance;
-    static inline thread_local bool on_back_thread{};
-    void (*idle_hook)(void*){};
-    void* idle_argument{};
-    alignas(64) std::atomic<bool> hook_requested{};
-    std::atomic<bool> back_running{};
 
     // 128 bytes: x86 spatial prefetchers pull 64-byte lines in pairs. back_waiting and wake are
     // always touched together by both threads, so they share a block.
     alignas(128) std::atomic<u64> published{};
     alignas(128) std::atomic<u64> consumed{};
-    /// A position the front waits for (WaitFor): the back stores `consumed` once past it.
+    /// A position the front waits for (WaitForWriters): the back stores `consumed` once past it.
     alignas(128) std::atomic<u64> wait_target{~u64{0}};
     alignas(128) std::atomic<bool> back_waiting{};
     std::atomic<u32> wake{};
-    /// The front sleeps in Backoff (#161: instead of yielding).
-    alignas(128) std::atomic<bool> front_waiting{};
-    std::atomic<u32> front_wake{};
     std::jthread back_thread;
 };
 

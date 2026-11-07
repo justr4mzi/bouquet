@@ -201,8 +201,6 @@ public:
      */
     u32 Read32(Common::ProcessAddress addr);
 
-    bool Read32Acquire(Common::ProcessAddress addr, u32& value);
-
     /**
      * Reads a 64-bit unsigned value from the current process' address space
      * at the given virtual address.

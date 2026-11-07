@@ -49,10 +49,6 @@ public:
         device_channels = device_channels_;
         system_channels = system_channels_;
 
-        if (!ctx) {
-            return;
-        }
-
         cubeb_stream_params params{};
         params.rate = TargetSampleRate;
         params.channels = device_channels;
@@ -124,16 +120,8 @@ public:
      * Finalize the sink stream.
      */
     void Finalize() override {
-        if (!stream_backend) {
-            return;
-        }
         Stop();
         cubeb_stream_destroy(stream_backend);
-        stream_backend = nullptr;
-    }
-
-    bool IsReady() const override {
-        return stream_backend != nullptr && !failed;
     }
 
     /**
@@ -143,29 +131,26 @@ public:
      *                 Default false.
      */
     void Start(bool resume = false) override {
-        if (!IsReady() || !paused) {
+        if (!ctx || !paused) {
             return;
         }
 
-        if (cubeb_stream_start(stream_backend) != CUBEB_OK) {
-            failed = true;
-            LOG_CRITICAL(Audio_Sink, "Error starting cubeb stream");
-            return;
-        }
         paused = false;
+        if (cubeb_stream_start(stream_backend) != CUBEB_OK) {
+            LOG_CRITICAL(Audio_Sink, "Error starting cubeb stream");
+        }
     }
 
     /**
      * Stop the sink stream.
      */
     void Stop() override {
-        if (!stream_backend || paused) {
+        if (!ctx || paused) {
             return;
         }
 
         SignalPause();
         if (cubeb_stream_stop(stream_backend) != CUBEB_OK) {
-            failed = true;
             LOG_CRITICAL(Audio_Sink, "Error stopping cubeb stream");
         }
     }
@@ -212,11 +197,7 @@ private:
      * @param user_data   - Custom data pointer passed along, points to a CubebSinkStream.
      * @param state       - New state of the device.
      */
-    static void StateCallback(cubeb_stream*, void* user_data, cubeb_state state) {
-        if (state == CUBEB_STATE_ERROR) {
-            static_cast<CubebSinkStream*>(user_data)->MarkFaulted();
-        }
-    }
+    static void StateCallback(cubeb_stream*, void*, cubeb_state) {}
 
     /// Main Cubeb context
     cubeb* ctx{};

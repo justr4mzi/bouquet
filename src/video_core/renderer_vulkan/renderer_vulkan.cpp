@@ -23,7 +23,6 @@
 #include "video_core/capture.h"
 #include "video_core/gpu.h"
 #include "video_core/present.h"
-#include "video_core/render_trace.h"
 #include "video_core/renderer_vulkan/present/util.h"
 #ifdef HAS_RESHADE
 #include "video_core/post_processing/fx_chain.h"
@@ -115,35 +114,10 @@ std::string BuildCommaSeparatedExtensions(
 
 Device CreateDevice(const vk::Instance& instance, const vk::InstanceDispatch& dld, VkSurfaceKHR surface) {
     const std::vector<VkPhysicalDevice> devices = instance.EnumeratePhysicalDevices();
-    if (devices.empty()) {
-        LOG_ERROR(Render_Vulkan, "No Vulkan devices found!");
-        throw vk::Exception(VK_ERROR_INITIALIZATION_FAILED);
-    }
-    const auto is_cpu = [&](u32 index) {
-        const auto type = vk::PhysicalDevice(devices[index], dld).GetProperties().deviceType;
-        return type == VK_PHYSICAL_DEVICE_TYPE_CPU || type == VK_PHYSICAL_DEVICE_TYPE_OTHER;
-    };
-    // First real GPU, so a saved index never lands on a software renderer (llvmpipe) by
-    // accident: the order of devices can change between runs and loaders.
-    const auto first_gpu = [&]() -> std::optional<u32> {
-        for (u32 i = 0; i < u32(devices.size()); ++i) {
-            if (!is_cpu(i)) {
-                return i;
-            }
-        }
-        return std::nullopt;
-    }();
-    u32 device_index = Settings::values.vulkan_device.GetValue();
+    const u32 device_index = Settings::values.vulkan_device.GetValue();
     if (device_index >= u32(devices.size())) {
-        const u32 fallback = first_gpu.value_or(0);
-        LOG_WARNING(Render_Vulkan, "Invalid device index {} ({} device(s) found), using device {}",
-                    device_index, devices.size(), fallback);
-        device_index = fallback;
-    } else if (is_cpu(device_index) && first_gpu) {
-        LOG_WARNING(Render_Vulkan,
-                    "Device {} is a software renderer, using GPU device {} instead",
-                    device_index, *first_gpu);
-        device_index = *first_gpu;
+        LOG_ERROR(Render_Vulkan, "Invalid device index {}!", device_index);
+        throw vk::Exception(VK_ERROR_INITIALIZATION_FAILED);
     }
     const vk::PhysicalDevice physical_device(devices[device_index], dld);
     return Device(*instance, physical_device, surface, dld);
@@ -234,9 +208,6 @@ RendererVulkan::~RendererVulkan() {
 }
 
 void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebuffers) {
-    const bool trace = Common::DkbFrameTrace::Enabled();
-    const auto entered = trace ? std::chrono::steady_clock::now()
-                               : std::chrono::steady_clock::time_point{};
     SCOPE_EXIT {
         render_window.OnFrameDisplayed();
     };
@@ -248,11 +219,7 @@ void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebu
     }
 
     RenderScreenshot(framebuffers);
-    const auto acquiring = trace ? std::chrono::steady_clock::now()
-                                 : std::chrono::steady_clock::time_point{};
     Frame* frame = present_manager.GetRenderFrame();
-    const auto acquired = trace ? std::chrono::steady_clock::now()
-                                : std::chrono::steady_clock::time_point{};
 
     scheduler.RequestOutsideRenderPassOperationContext();
     blit_swapchain.DrawToFrame(device, rasterizer, frame, framebuffers,
@@ -277,13 +244,8 @@ void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebu
     }
 #endif
 
-    if (trace) {
-        scheduler.MarkFrameEnd(++trace_frame);
-    }
     scheduler.Flush(*frame->render_ready);
 
-    const auto presenting = trace ? std::chrono::steady_clock::now()
-                                  : std::chrono::steady_clock::time_point{};
     present_manager.Present(frame);
     presented_frames.fetch_add(1, std::memory_order_relaxed);
 #ifdef HAS_LSFG
@@ -292,27 +254,6 @@ void RendererVulkan::Composite(std::span<const Tegra::FramebufferConfig> framebu
 
     gpu.RendererFrameEndNotify();
     rasterizer.TickFrame();
-    if (trace) {
-        const auto end = std::chrono::steady_clock::now();
-        const auto ms = [](auto duration) {
-            return std::chrono::duration<double, std::milli>(duration).count();
-        };
-        if (trace_cpu_rate.Ready(end)) {
-            LOG_INFO(Render_Vulkan,
-                     "DKB renderer renderer_frame={} host_pacing_mode={} vsync_mode={} "
-                     "cpu_frame_wall_ms={:.3f} "
-                     "cpu_composite_wall_ms={:.3f} capture_wall_ms={:.3f} "
-                     "acquire_frame_wall_ms={:.3f} record_submit_wall_ms={:.3f} "
-                     "present_call_wall_ms={:.3f} frame_end_wall_ms={:.3f}",
-                     trace_frame, static_cast<int>(Settings::values.frame_pacing_mode.GetValue()),
-                     static_cast<int>(Settings::values.vsync_mode.GetValue()),
-                     trace_last_frame == std::chrono::steady_clock::time_point{}
-                         ? -1.0 : ms(entered - trace_last_frame),
-                     ms(end - entered), ms(acquiring - entered), ms(acquired - acquiring),
-                     ms(presenting - acquired), ms(presented - presenting), ms(end - presented));
-        }
-        trace_last_frame = entered;
-    }
 }
 
 void RendererVulkan::Report() const {
@@ -332,15 +273,6 @@ void RendererVulkan::Report() const {
     LOG_INFO(Render_Vulkan, "Device: {}", model_name);
     LOG_INFO(Render_Vulkan, "Vulkan: {}", api_version);
     LOG_INFO(Render_Vulkan, "Available VRAM: {:.2f} GiB", available_vram);
-    if (VideoCommon::RenderTrace::Enabled()) {
-        LOG_INFO(Render_Vulkan, "Render trace enabled: interval=600 frames, log_filter={}",
-                 Settings::values.log_filter.GetValue());
-    }
-    LOG_DEBUG(Render_Vulkan,
-              "Render trace capabilities: geometry_shader={} transform_feedback={} "
-              "geometry_streams={} mesh_shader={}",
-              device.GetPhysical().GetFeatures().geometryShader, device.IsExtTransformFeedbackSupported(),
-              device.AreTransformFeedbackGeometryStreamsSupported(), device.IsExtMeshShaderSupported());
 }
 
 vk::Buffer RendererVulkan::RenderToBuffer(std::span<const Tegra::FramebufferConfig> framebuffers,

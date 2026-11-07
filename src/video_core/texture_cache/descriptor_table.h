@@ -8,7 +8,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <span>
 #include <vector>
 
 #include "common/alignment.h"
@@ -36,11 +35,6 @@ public:
         // Cleared on the next read: the texture cache invalidates every channel's tables for
         // each image it deletes, dozens of times a frame while its collector runs.
         invalidated = true;
-    }
-
-    std::span<Id> LiveBoundIds() noexcept {
-        return std::span{bound_ids}.first(
-            (std::min)(bound_ids.size(), size_t{current_limit} + 1));
     }
 
     template <class MemoryManager>

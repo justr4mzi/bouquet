@@ -3,34 +3,41 @@
 
 #pragma once
 
+#include "core/hle/kernel/k_event.h"
 #include "core/hle/service/ipc_helpers.h"
-#include "core/hle/service/ngc/guest_hid.h"
+#include "core/hle/service/kernel_helpers.h"
 #include "core/hle/service/service.h"
 
 namespace Service {
 
+// User service returned by stpl:u 0 (nn::streamplay::detail::GetUserService). The SDK attaches a
+// system event to the handle command 300 returns right after opening it, so that one needs a real
+// event; everything else falls through to the nx2 auto stub (zero sizes, nothing streaming).
 class INx2StreamPlayUserService final : public ServiceFramework<INx2StreamPlayUserService> {
 public:
     explicit INx2StreamPlayUserService(Core::System& system_)
-        : ServiceFramework{system_, "nx2:stpl:u::0"} {
+        : ServiceFramework{system_, "nx2:stpl:u::0"}, service_context{system_, "stpl:u"} {
         static const FunctionInfo functions[] = {
-            {300, &INx2StreamPlayUserService::GetGuestHidSharedMemory, "GetGuestHidSharedMemory"},
+            {300, &INx2StreamPlayUserService::GetEvent, "GetEvent (guessed)"},
         };
         RegisterHandlers(functions);
+        event = service_context.CreateEvent("INx2StreamPlayUserService:Event");
     }
 
     ~INx2StreamPlayUserService() override {
-        if (guest_hid_memory) {
-            guest_hid_memory->Close(kernel);
-        }
+        service_context.CloseEvent(event);
     }
 
 private:
-    void GetGuestHidSharedMemory(HLERequestContext& ctx) {
-        NGC::ReplyGuestHidSharedMemory(ctx, system, guest_hid_memory);
+    void GetEvent(HLERequestContext& ctx) {
+        LOG_WARNING(Service, "(STUBBED) stpl:u::0 {}, returning an event", ctx.GetCommand());
+        IPC::ResponseBuilder rb{ctx, 2, 1};
+        rb.Push(ResultSuccess);
+        rb.PushCopyObjects(ctx, event->GetReadableEvent());
     }
 
-    Kernel::KSharedMemory* guest_hid_memory{};
+    KernelHelpers::ServiceContext service_context;
+    Kernel::KEvent* event;
 };
 
 // Switch 2 stream play (GameShare), stpl:u. Command 0 (u32 0x12) opens the user service the SDK

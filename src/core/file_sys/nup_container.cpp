@@ -565,7 +565,7 @@ bool NupContainer::ValidateDirTree() const {
                 stack.pop_back();
                 if (!stack.empty()) {
                     u32& parent_height = height[stack.back().dir];
-                    parent_height = (std::max)(parent_height, height[frame.dir] + 1);
+                    parent_height = std::max(parent_height, height[frame.dir] + 1);
                 }
                 continue;
             }
@@ -578,15 +578,15 @@ bool NupContainer::ValidateDirTree() const {
                 LOG_ERROR(Loader, "NUP directory tree contains a cycle");
                 return false;
             }
-            if (stack.size() + height[child] + 1 > MaxDirDepth) {
-                LOG_ERROR(Loader, "NUP directory tree is nested too deeply");
-                return false;
-            }
             if (state[child] == Done) {
-                height[frame.dir] = (std::max)(height[frame.dir], height[child] + 1);
+                height[frame.dir] = std::max(height[frame.dir], height[child] + 1);
             } else {
                 state[child] = InProgress;
                 stack.push_back({child, 0});
+            }
+            if (stack.size() + height[child] > MaxDirDepth) {
+                LOG_ERROR(Loader, "NUP directory tree is nested too deeply");
+                return false;
             }
         }
     }
@@ -750,11 +750,7 @@ VirtualDir NupContainer::GetExeFSDir(std::size_t package_index) {
         exefs_dir_cache.resize(packages.size());
     }
     if (exefs_dir_cache[package_index] == nullptr) {
-        auto dir = BuildPackageDir(packages[package_index].exefs_dir);
-        if (dir->GetFiles().empty() && dir->GetSubdirectories().empty()) {
-            return nullptr;
-        }
-        exefs_dir_cache[package_index] = std::move(dir);
+        exefs_dir_cache[package_index] = BuildPackageDir(packages[package_index].exefs_dir);
     }
     return exefs_dir_cache[package_index];
 }

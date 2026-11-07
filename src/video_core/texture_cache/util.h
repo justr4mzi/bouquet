@@ -20,10 +20,6 @@
 #include "video_core/texture_cache/types.h"
 #include "video_core/textures/texture.h"
 
-namespace Tegra::Texture {
-class UnswizzleWorker;
-}
-
 namespace VideoCommon {
 
 using Tegra::Texture::TICEntry;
@@ -105,8 +101,7 @@ void ExecuteUnswizzlePlan(Tegra::MemoryManager& gpu_memory, const UnswizzlePlan&
 
 [[nodiscard]] boost::container::small_vector<BufferImageCopy, 16> UnswizzleImage(
     Tegra::MemoryManager& gpu_memory, GPUVAddr gpu_addr, const ImageInfo& info,
-    std::span<const u8> input, std::span<u8> output,
-    Tegra::Texture::UnswizzleWorker* worker = nullptr);
+    std::span<const u8> input, std::span<u8> output);
 
 /// The copy UnswizzleLinearImage makes for a linear image of `guest_size_bytes`, without reading
 /// guest memory (for callers that read it themselves).

@@ -8,7 +8,6 @@
 
 #include <atomic>
 #include <map>
-#include <memory>
 #include <mutex>
 #include <optional>
 #include <vector>
@@ -119,8 +118,6 @@ public:
     /// without a translation per word.
     void ReadWordsUnsafe(GPUVAddr gpu_src_addr, u32* dest, std::size_t count) const;
     void WriteBlockCached(GPUVAddr gpu_dest_addr, const void* src_buffer, std::size_t size);
-    /// WriteBlockCached of `count` consecutive words within one device page, in a single write.
-    void WriteWordsCached(GPUVAddr gpu_dest_addr, const u32* words, std::size_t count);
 
     /**
      * Checks if a gpu region can be simply read with a pointer.
@@ -161,13 +158,6 @@ public:
 
     size_t MaxContinuousRange(GPUVAddr gpu_addr, size_t size) const;
 
-    [[nodiscard]] u64 MapSerial() const {
-        return map_serial.load(std::memory_order_acquire);
-    }
-
-    /// MaxContinuousRange by walking the page tables (the answer with Nx2Perf off).
-    size_t MaxContinuousRangeUncached(GPUVAddr gpu_addr, size_t size) const;
-
     bool IsWithinGPUAddressRange(GPUVAddr gpu_addr) const {
         return gpu_addr < address_space_size;
     }
@@ -176,9 +166,6 @@ public:
 
     size_t GetMemoryLayoutSize(GPUVAddr gpu_addr,
                                size_t max_size = (std::numeric_limits<size_t>::max)()) const;
-
-    /// GetMemoryLayoutSize from the kind map under its lock (the answer with Nx2Perf off).
-    size_t GetMemoryLayoutSizeUncached(GPUVAddr gpu_addr) const;
 
     void FlushCaching();
 

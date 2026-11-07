@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <cstdlib>
 #include <functional>
 #include <map>
 #include <mutex>
@@ -81,30 +80,6 @@ inline void Nx2ClearGpuWrittenPages() {
         word.store(0, std::memory_order_relaxed);
     }
     g_nx2_has_command_list_pages.store(false, std::memory_order_relaxed);
-}
-
-// Device pages semaphores and queries are released or acquired on: the values there come from
-// work the split's back may not have run yet (from monteger8/Eglantine-DKB).
-inline std::array<std::atomic<u64>, (u64{1} << (36 - Nx2WrittenPageBits)) / 64> g_nx2_semaphore_pages{};
-
-inline void Nx2MarkSemaphorePage(u64 device_address) {
-    const u64 page = device_address >> Nx2WrittenPageBits;
-    if (page >= g_nx2_semaphore_pages.size() * 64) {
-        return;
-    }
-    auto& word = g_nx2_semaphore_pages[page / 64];
-    const u64 bit = u64{1} << (page % 64);
-    if ((word.load(std::memory_order_relaxed) & bit) == 0) {
-        word.fetch_or(bit, std::memory_order_relaxed);
-    }
-}
-
-[[nodiscard]] inline bool Nx2IsSemaphorePage(u64 device_address) {
-    const u64 page = device_address >> Nx2WrittenPageBits;
-    if (page >= g_nx2_semaphore_pages.size() * 64) {
-        return true;
-    }
-    return (g_nx2_semaphore_pages[page / 64].load(std::memory_order_relaxed) >> (page % 64)) & 1;
 }
 
 [[nodiscard]] inline bool Nx2IsGpuWritten(u64 device_address) {
@@ -351,16 +326,6 @@ inline void Nx2SparseMarkWritten(u64 gpu_address, u64 size) {
 }
 
 /// True when [gpu_address, +size) lies in one sparse region and none of it has been written.
-/// Whether acquires a release queued for the split's back meets skip the drain
-/// (GpuSplit::NoteQueuedRelease). EDEN_NX2_ACQUIRE_QUEUED=0 turns it off. From selevet-eglantine.
-[[nodiscard]] inline bool Nx2AcquireQueuedEnabled() {
-    static const bool enabled = [] {
-        const char* value = std::getenv("EDEN_NX2_ACQUIRE_QUEUED");
-        return value == nullptr || value[0] != '0';
-    }();
-    return enabled;
-}
-
 inline bool Nx2SparseUnwritten(u64 gpu_address, u64 size) {
     if (size == 0 || gpu_address + size <= g_nx2_sparse_low.load(std::memory_order_relaxed) ||
         gpu_address >= g_nx2_sparse_high.load(std::memory_order_relaxed)) [[likely]] {
@@ -383,6 +348,20 @@ inline bool Nx2SparseUnwritten(u64 gpu_address, u64 size) {
         }
     }
     return true;
+}
+
+/// GPU VA in the first page that mirrors a release at `address`, or 0.
+inline u64 Nx2SemaphoreMirror(u64 address) {
+    for (const auto& region : g_nx2_semaphore_regions) {
+        const u64 start = region.load(std::memory_order_relaxed);
+        if (start == 0) {
+            continue;
+        }
+        if (address >= start + 0x1000 && address < start + 0x2000) {
+            return address - 0x1000;
+        }
+    }
+    return 0;
 }
 
 /// Channels suspended on a semaphore acquire. A console channel polls and sees every release;

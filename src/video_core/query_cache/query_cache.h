@@ -25,7 +25,6 @@
 #include "video_core/memory_manager.h"
 #include "video_core/nx2.h"
 #include "video_core/query_cache/bank_base.h"
-#include "video_core/query_cache/frame_trace.h"
 #include "video_core/query_cache/query_base.h"
 #include "video_core/query_cache/query_cache_base.h"
 #include "video_core/query_cache/query_stream.h"
@@ -236,7 +235,6 @@ void QueryCacheBase<Traits>::CounterReport(GPUVAddr addr, QueryType counter_type
                                            QueryPropertiesFlags flags, u32 payload, u32 subreport) {
     const bool has_timestamp = True(flags & QueryPropertiesFlags::HasTimeout);
     const bool is_fence = True(flags & QueryPropertiesFlags::IsAFence);
-    const auto requested_type = counter_type;
     static const GPUVAddr watch = [] {
         const char* value = std::getenv("EDEN_NX2_SEM_WATCH");
         return value ? GPUVAddr{std::strtoull(value, nullptr, 16)} : GPUVAddr{};
@@ -256,14 +254,6 @@ void QueryCacheBase<Traits>::CounterReport(GPUVAddr addr, QueryType counter_type
         streamer = impl->streamers[streamer_id];
     }
     auto cpu_addr_opt = gpu_memory->GpuToCpuAddress(addr);
-    if (const u64 trace = QueryTrace::Sample(QueryTrace::Event::Request)) {
-        LOG_INFO(HW_GPU,
-                 "DKB_QUERY request n={} as={} gpu={:#x} device={:#x} mapped={} type={} "
-                 "effective_type={} flags={:#x} payload={:#x} subreport={}",
-                 trace, gpu_memory->GetID(), addr, cpu_addr_opt.value_or(0),
-                 cpu_addr_opt.has_value(), static_cast<u32>(requested_type),
-                 static_cast<u32>(counter_type), static_cast<u32>(flags), payload, subreport);
-    }
     if (!cpu_addr_opt) [[unlikely]] {
         return;
     }
@@ -282,54 +272,21 @@ void QueryCacheBase<Traits>::CounterReport(GPUVAddr addr, QueryType counter_type
     };
     u8* pointer = impl->device_memory.template GetPointer<u8>(cpu_addr);
     u8* pointer_timestamp = impl->device_memory.template GetPointer<u8>(cpu_addr + 8);
-    // Switch 2 titles read fence-flagged reports back from the CPU as GPU progress. Written when
-    // the fence was signaled, before the GPU produced them, Ocarina's foliage flashed white; on a
-    // fence that did not wait for the host GPU, its tree leaves flickered under CPU load. They are
-    // written once the host GPU completed the work before them. Until then only conditional
-    // rendering sees them (delayed_reports); tracking them as pending made CPU reads wait.
-    const bool free_on_run = is_fence && Tegra::g_nx2_ampere.load(std::memory_order_relaxed);
-    bool is_synced = (free_on_run || (Settings::IsGPUFenceBehaviorDefault()
-                                          ? !Settings::IsGPULevelHigh()
-                                          : !Settings::IsGPUFenceBehaviorBalanced() &&
-                                                !Settings::IsGPUFenceBehaviorAccurate())) &&
-                     is_fence;
-    std::function<void()> operation([this, is_synced, free_on_run, new_query_id, streamer,
-                                     query_base = query, query_location, pointer, pointer_timestamp,
-                                     cpu_addr, addr, asid = gpu_memory->GetID(), counter_type] {
-        const auto retire = [&] {
-            if (free_on_run) {
-                std::scoped_lock lock(cache_mutex);
-                if (const auto it = delayed_reports.find(cpu_addr);
-                    it != delayed_reports.end() && it->second.raw == query_location.raw) {
-                    delayed_reports.erase(it);
-                }
-                streamer->Free(new_query_id);
-            } else if (!is_synced) [[likely]] {
+    bool is_synced = (Settings::IsGPUFenceBehaviorDefault() ? !Settings::IsGPULevelHigh() : !Settings::IsGPUFenceBehaviorBalanced() && !Settings::IsGPUFenceBehaviorAccurate()) && is_fence;
+    std::function<void()> operation([this, is_synced, streamer, query_base = query, query_location,
+                                     pointer, pointer_timestamp, cpu_addr] {
+        if (True(query_base->flags & QueryFlagBits::IsInvalidated)) {
+            if (!is_synced) [[likely]] {
                 impl->pending_unregister.push_back(query_location);
             }
-        };
-        if (True(query_base->flags & QueryFlagBits::IsInvalidated)) {
-            if (const u64 trace = QueryTrace::Sample(QueryTrace::Event::Discard)) {
-                LOG_INFO(HW_GPU,
-                         "DKB_QUERY discard n={} as={} gpu={:#x} device={:#x} type={} "
-                         "reason=invalidated flags={:#x}",
-                         trace, asid, addr, cpu_addr, static_cast<u32>(counter_type),
-                         static_cast<u32>(query_base->flags));
-            }
-            retire();
             return;
         }
         if (False(query_base->flags & QueryFlagBits::IsFinalValueSynced)) [[unlikely]] {
-            if (const u64 trace = QueryTrace::Sample(QueryTrace::Event::Discard)) {
-                LOG_INFO(HW_GPU,
-                         "DKB_QUERY discard n={} as={} gpu={:#x} device={:#x} type={} "
-                         "reason=unsynchronized flags={:#x}",
-                         trace, asid, addr, cpu_addr, static_cast<u32>(counter_type),
-                         static_cast<u32>(query_base->flags));
-            }
             LOG_ERROR(HW_GPU,
                       "Query report value not synchronized. Consider increasing GPU accuracy.");
-            retire();
+            if (!is_synced) [[likely]] {
+                impl->pending_unregister.push_back(query_location);
+            }
             return;
         }
         query_base->value += streamer->GetAmendValue();
@@ -343,28 +300,11 @@ void QueryCacheBase<Traits>::CounterReport(GPUVAddr addr, QueryType counter_type
             std::memcpy(pointer, &value, sizeof(value));
         }
         Tegra::Nx2SemaphoreWaiters::Get().OnWrite(cpu_addr, static_cast<u32>(query_base->value));
-        if (const u64 trace = QueryTrace::Sample(QueryTrace::Event::Write)) {
-            const bool wide = True(query_base->flags & QueryFlagBits::HasTimestamp);
-            LOG_INFO(HW_GPU,
-                     "DKB_QUERY write n={} path=completion as={} gpu={:#x} device={:#x} type={} "
-                     "bytes={} value={:#x} flags={:#x}",
-                     trace, asid, addr, cpu_addr, static_cast<u32>(counter_type), wide ? 8 : 4,
-                     wide ? query_base->value : static_cast<u32>(query_base->value),
-                     static_cast<u32>(query_base->flags));
+        if (!is_synced) [[likely]] {
+            impl->pending_unregister.push_back(query_location);
         }
-        retire();
     });
-    if (free_on_run) {
-        {
-            std::scoped_lock lock(cache_mutex);
-            delayed_reports.insert_or_assign(cpu_addr, query_location);
-        }
-        // The fence carrying it must wait for the host GPU: a placeholder one runs the write as
-        // soon as the fencing thread reaches it, possibly before the GPU finished.
-        needs_real_fence.store(true, std::memory_order_relaxed);
-        impl->rasterizer.SyncOperation(std::move(operation));
-        impl->rasterizer.SignalFence([] {});
-    } else if (is_fence) {
+    if (is_fence) {
         impl->rasterizer.SignalFence(std::move(operation));
     } else {
         if (!Settings::IsGPULevelHigh() && counter_type == QueryType::Payload) {
@@ -377,23 +317,13 @@ void QueryCacheBase<Traits>::CounterReport(GPUVAddr addr, QueryType counter_type
                 std::memcpy(pointer, &payload, sizeof(payload));
             }
             Tegra::Nx2SemaphoreWaiters::Get().OnWrite(cpu_addr, payload);
-            if (const u64 trace = QueryTrace::Sample(QueryTrace::Event::Write)) {
-                LOG_INFO(HW_GPU,
-                         "DKB_QUERY write n={} path=immediate as={} gpu={:#x} device={:#x} type={} "
-                         "bytes={} value={:#x} flags={:#x}",
-                         trace, gpu_memory->GetID(), addr, cpu_addr,
-                         static_cast<u32>(counter_type), has_timestamp ? 8 : 4, payload,
-                         static_cast<u32>(query->flags));
-            }
             streamer->Free(new_query_id);
             return;
         }
         impl->rasterizer.SyncOperation(std::move(operation));
     }
     if (is_synced) {
-        if (!free_on_run) {
-            streamer->Free(new_query_id);
-        }
+        streamer->Free(new_query_id);
         return;
     }
     auto [cont_addr, base] = gen_caching_indexing(cpu_addr);
@@ -478,30 +408,27 @@ bool QueryCacheBase<Traits>::AccelerateHostConditionalRendering() {
         }
         VAddr cpu_addr = *cpu_addr_opt;
         std::scoped_lock lock(cache_mutex);
-        const auto found = [&]() -> std::optional<QueryLocation> {
-            for (const VAddr candidate : {cpu_addr, cpu_addr + 4}) {
-                if (const auto it1 = cached_queries.find(candidate >> Core::DEVICE_PAGEBITS);
-                    it1 != cached_queries.end()) {
-                    if (const auto it = it1->second.find(candidate & Core::DEVICE_PAGEMASK);
-                        it != it1->second.end()) {
-                        return it->second;
-                    }
-                }
-            }
-            for (const VAddr candidate : {cpu_addr, cpu_addr + 4}) {
-                if (const auto it = delayed_reports.find(candidate); it != delayed_reports.end()) {
-                    return it->second;
-                }
-            }
-            return std::nullopt;
-        }();
-        if (!found) {
+        auto it1 = cached_queries.find(cpu_addr >> Core::DEVICE_PAGEBITS);
+        if (it1 == cached_queries.end()) {
             return VideoCommon::LookupData{
                 .address = cpu_addr,
                 .found_query = nullptr,
             };
         }
-        auto* query = impl->ObtainQuery(*found);
+        auto& sub_container = it1->second;
+        auto it_current = sub_container.find(cpu_addr & Core::DEVICE_PAGEMASK);
+
+        if (it_current == sub_container.end()) {
+            auto it_current_2 = sub_container.find((cpu_addr & Core::DEVICE_PAGEMASK) + 4);
+            if (it_current_2 == sub_container.end()) {
+                return VideoCommon::LookupData{
+                    .address = cpu_addr,
+                    .found_query = nullptr,
+                };
+            }
+            it_current = it_current_2;
+        }
+        auto* query = impl->ObtainQuery(it_current->second);
         qc_dirty |= True(query->flags & QueryFlagBits::IsHostManaged) &&
                     False(query->flags & QueryFlagBits::IsGuestSynced);
         return VideoCommon::LookupData{
@@ -550,7 +477,6 @@ template <typename Traits>
 void QueryCacheBase<Traits>::CommitAsyncFlushes() {
     // Make sure to have the results synced in Host.
     NotifyWFI();
-    needs_real_fence.store(false, std::memory_order_relaxed);
 
     u64 mask{};
     {
@@ -585,7 +511,7 @@ void QueryCacheBase<Traits>::CommitAsyncFlushes() {
 
 template <typename Traits>
 bool QueryCacheBase<Traits>::HasUncommittedFlushes() const {
-    bool result = needs_real_fence.load(std::memory_order_relaxed);
+    bool result = false;
     impl->ForEachStreamer([&result](StreamerInterface* streamer) {
         result |= streamer->HasUnsyncedQueries();
         return result;
@@ -595,7 +521,7 @@ bool QueryCacheBase<Traits>::HasUncommittedFlushes() const {
 
 template <typename Traits>
 bool QueryCacheBase<Traits>::HasPendingFenceWork() const {
-    bool result = needs_real_fence.load(std::memory_order_relaxed);
+    bool result = false;
     impl->ForEachStreamer([&result](StreamerInterface* streamer) {
         result |= streamer->HasUnsyncedQueries() || streamer->HasPendingSync();
         return result;
@@ -667,20 +593,10 @@ bool QueryCacheBase<Traits>::SemiFlushQueryDirty(QueryCacheBase<Traits>::QueryLo
         auto* ptr = impl->device_memory.template GetPointer<u8>(query_base->guest_address);
         if (True(query_base->flags & QueryFlagBits::HasTimestamp)) {
             std::memcpy(ptr, &query_base->value, sizeof(query_base->value));
-        } else {
-            u32 value_l = static_cast<u32>(query_base->value);
-            std::memcpy(ptr, &value_l, sizeof(value_l));
+            return false;
         }
-        if (const u64 trace = QueryTrace::Sample(QueryTrace::Event::Write)) {
-            const bool wide = True(query_base->flags & QueryFlagBits::HasTimestamp);
-            LOG_INFO(HW_GPU,
-                     "DKB_QUERY write n={} path=semi-flush device={:#x} stream={} slot={} "
-                     "bytes={} value={:#x} flags={:#x}",
-                     trace, query_base->guest_address, location.stream_id.Value(),
-                     location.query_id.Value(), wide ? 8 : 4,
-                     wide ? query_base->value : static_cast<u32>(query_base->value),
-                     static_cast<u32>(query_base->flags));
-        }
+        u32 value_l = static_cast<u32>(query_base->value);
+        std::memcpy(ptr, &value_l, sizeof(value_l));
         return false;
     }
     return True(query_base->flags & QueryFlagBits::IsHostManaged) &&

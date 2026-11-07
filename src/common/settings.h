@@ -358,7 +358,7 @@ struct Values {
                                                   true};
 
     SwitchableSetting<ScalingFilter> scaling_filter{linkage,
-                                                    ScalingFilter::Bilinear,
+                                                    ScalingFilter::ScaleForce,
                                                     "scaling_filter",
                                                     Category::Renderer,
                                                     Specialization::Default,
@@ -366,7 +366,7 @@ struct Values {
                                                     true};
     // A Switch 2 game's own DLSS network (translated) in place of AMD FSR 3.1, where it runs and
     // its output passes the checks.
-    SwitchableSetting<bool> game_dlss_network{linkage, false, "game_dlss_network",
+    SwitchableSetting<bool> game_dlss_network{linkage, true, "game_dlss_network",
                                               Category::Renderer};
     SwitchableSetting<int, true> fsr_sharpening_slider{linkage,
 #ifdef __ANDROID__
@@ -425,7 +425,7 @@ struct Values {
                                                 true};
 
     SwitchableSetting<bool> frame_gen{linkage, false, "frame_gen", Category::Renderer,
-                                      Specialization::Default, true, true};
+                                      Specialization::Default, true, false};
 
     SwitchableSetting<FrameGenType> frame_gen_type{linkage,
                                                    FrameGenType::Fsr3,
@@ -433,7 +433,7 @@ struct Values {
                                                    Category::Renderer,
                                                    Specialization::Default,
                                                    true,
-                                                   true,
+                                                   false,
                                                    &frame_gen};
 
     SwitchableSetting<u32, true> frame_gen_multiplier{linkage,
@@ -444,7 +444,7 @@ struct Values {
                                                       Category::Renderer,
                                                       Specialization::Countable,
                                                       true,
-                                                      true,
+                                                      false,
                                                       &frame_gen};
 
     SwitchableSetting<u32, true> frame_gen_target_rate{linkage,

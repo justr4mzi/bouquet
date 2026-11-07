@@ -41,16 +41,14 @@ public:
         }
     }
 
-    Result WaitForAddress(uint64_t addr, Svc::ArbitrationType type, s64 value, s64 timeout) {
+    Result WaitForAddress(uint64_t addr, Svc::ArbitrationType type, s32 value, s64 timeout) {
         switch (type) {
         case Svc::ArbitrationType::WaitIfLessThan:
-            R_RETURN(WaitIfLessThan(addr, static_cast<s32>(value), false, timeout));
+            R_RETURN(WaitIfLessThan(addr, value, false, timeout));
         case Svc::ArbitrationType::DecrementAndWaitIfLessThan:
-            R_RETURN(WaitIfLessThan(addr, static_cast<s32>(value), true, timeout));
+            R_RETURN(WaitIfLessThan(addr, value, true, timeout));
         case Svc::ArbitrationType::WaitIfEqual:
-            R_RETURN(WaitIfEqual(addr, static_cast<s32>(value), timeout, false));
-        case Svc::ArbitrationType::WaitIfEqual64:
-            R_RETURN(WaitIfEqual(addr, value, timeout, true));
+            R_RETURN(WaitIfEqual(addr, value, timeout));
         default:
             UNREACHABLE();
         }
@@ -61,7 +59,7 @@ private:
     Result SignalAndIncrementIfEqual(uint64_t addr, s32 value, s32 count);
     Result SignalAndModifyByWaitingCountIfEqual(uint64_t addr, s32 value, s32 count);
     Result WaitIfLessThan(uint64_t addr, s32 value, bool decrement, s64 timeout);
-    Result WaitIfEqual(uint64_t addr, s64 value, s64 timeout, bool is_64_bit);
+    Result WaitIfEqual(uint64_t addr, s32 value, s64 timeout);
 
 private:
     ThreadTree m_tree;

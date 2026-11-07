@@ -4,8 +4,6 @@
 // SPDX-FileCopyrightText: Copyright 2023 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
-#include <algorithm>
-
 #include "common/settings.h"
 #include "common/thread.h"
 #include "core/frontend/emu_window.h"
@@ -203,10 +201,7 @@ void PresentManager::Present(Frame* frame) {
 }
 
 size_t PresentManager::MaxExtraFrames() const {
-    // The pool is sized once at boot; turning frame generation on later can't go past what it
-    // holds, and asking for more than it holds would wait for a free frame forever (from
-    // ZendNevs's fork).
-    return std::min<size_t>(image_count, frames.size()) - 1;
+    return image_count - 1;
 }
 
 bool PresentManager::NeedsStorage(const Frame* frame, bool required) const {
@@ -417,9 +412,7 @@ void PresentManager::CopyToSwapchain(Frame* frame) {
             // Draw to swapchain.
             return CopyToSwapchainImpl(frame);
         } catch (const vk::Exception& except) {
-            const VkResult result = except.GetResult();
-            if (result != VK_ERROR_SURFACE_LOST_KHR && result != VK_INCOMPLETE &&
-                result != VK_ERROR_OUT_OF_DATE_KHR && result != VK_ERROR_NATIVE_WINDOW_IN_USE_KHR) {
+            if (except.GetResult() != VK_ERROR_SURFACE_LOST_KHR) {
                 throw;
             }
 
@@ -434,15 +427,11 @@ void PresentManager::CopyToSwapchainImpl(Frame* frame) {
 
     // If the size of the incoming frames has changed, recreate the swapchain
     // to account for that.
-    const bool is_suboptimal = swapchain.NeedsRecreation() || swapchain.IsOutDated();
+    const bool is_suboptimal = swapchain.NeedsRecreation();
     const bool size_changed =
         swapchain.GetWidth() != frame->width || swapchain.GetHeight() != frame->height;
     if (is_suboptimal || size_changed) {
         RecreateSwapchain(frame);
-    }
-    if (!swapchain.IsCreated()) {
-        DiscardFrame(frame);
-        return;
     }
 
     while (swapchain.AcquireNextImage(!use_present_thread)) {

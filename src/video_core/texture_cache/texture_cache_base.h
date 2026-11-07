@@ -46,7 +46,6 @@
 #include "video_core/texture_cache/render_targets.h"
 #include "video_core/texture_cache/types.h"
 #include "video_core/textures/texture.h"
-#include "video_core/textures/unswizzle_worker.h"
 
 namespace Tegra {
 namespace Control {
@@ -239,8 +238,6 @@ public:
     /// Handle feedback loops during draws.
     void CheckFeedbackLoop(std::span<const ImageViewInOut> views);
 
-    [[nodiscard]] bool SamplesRenderTarget(std::span<const ImageViewInOut> views);
-
     /// Get the sampler from the graphics/compute descriptor table in the specified index
     Sampler* GetSampler(u32 index, bool compute);
 
@@ -268,10 +265,6 @@ public:
     /// UpdateRenderTargets should be called before this
     Framebuffer* GetFramebuffer();
 
-    [[nodiscard]] const RenderTargets& GetRenderTargets() const noexcept {
-        return render_targets;
-    }
-
     /// Mark images in a range as modified from the CPU
     void WriteMemory(DAddr cpu_addr, size_t size);
 
@@ -292,12 +285,12 @@ public:
                    const Tegra::Engines::Fermi2D::Config& copy);
 
     /// Stand-in for a DLSS evaluation: temporal upscale of src into dst (see the runtime's
-    /// TemporalUpscale). False when unsupported; the caller retains its native dispatch.
+    /// TemporalUpscale). False when the images cannot take it; the caller then blits.
     bool TemporalUpscale(const Tegra::Engines::Fermi2D::Surface& dst,
                          const Tegra::Engines::Fermi2D::Surface& src,
                          const Tegra::Engines::Fermi2D::Surface& motion_vectors,
                          const Tegra::Texture::TICEntry* depth, std::array<f32, 2> jitter,
-                         std::array<f32, 2> motion_scale, bool use_history);
+                         std::array<f32, 2> motion_scale);
 
     /// Health check of a game's DLSS network output (dst) against its input (src); see the
     /// runtime's ProbeGameDlssOutput. Returns an earlier check's result when one is ready.
@@ -538,7 +531,6 @@ private:
     u64 last_feedback_loop_serial = 0;
     u64 last_feedback_texture_serial = 0;
     bool last_feedback_loop_result = false;
-    bool feedback_depth_dirty = true;
     FramebufferId last_framebuffer_id{};
     u64 last_framebuffer_serial = 0;
 
@@ -632,7 +624,6 @@ private:
 
     Common::ScratchBuffer<u8> swizzle_data_buffer;
     Common::ScratchBuffer<u8> unswizzle_data_buffer;
-    Tegra::Texture::UnswizzleWorker unswizzle_worker;
 
     u64 modification_tick = 0;
     u64 frame_tick = 0;

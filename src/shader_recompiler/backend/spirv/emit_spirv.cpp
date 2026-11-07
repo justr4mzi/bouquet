@@ -99,7 +99,7 @@ void Invoke(EmitContext& ctx, IR::Inst* inst) {
     }
 }
 
-void EmitInst(EmitContext& ctx, IR::Inst* inst) try {
+void EmitInst(EmitContext& ctx, IR::Inst* inst) {
     switch (inst->GetOpcode()) {
 #define OPCODE(name, result_type, ...)                                                             \
     case IR::Opcode::name:                                                                         \
@@ -108,54 +108,14 @@ void EmitInst(EmitContext& ctx, IR::Inst* inst) try {
 #undef OPCODE
     }
     throw LogicError("Invalid opcode {}", inst->GetOpcode());
-} catch (Shader::Exception& exception) {
-    exception.Prepend(fmt::format("SPIR-V emission failed at IR opcode {}: ",
-                                  IR::NameOf(inst->GetOpcode())));
-    throw;
 }
 
 Id TypeId(const EmitContext& ctx, IR::Type type) {
     switch (type) {
     case IR::Type::U1:
         return ctx.U1;
-    case IR::Type::U8:
-        return ctx.U8;
-    case IR::Type::U16:
-        return ctx.U16;
     case IR::Type::U32:
         return ctx.U32[1];
-    case IR::Type::U64:
-        return ctx.U64;
-    case IR::Type::F16:
-        return ctx.F16[1];
-    case IR::Type::F32:
-        return ctx.F32[1];
-    case IR::Type::F64:
-        return ctx.F64[1];
-    case IR::Type::U32x2:
-        return ctx.U32[2];
-    case IR::Type::U32x3:
-        return ctx.U32[3];
-    case IR::Type::U32x4:
-        return ctx.U32[4];
-    case IR::Type::F16x2:
-        return ctx.F16[2];
-    case IR::Type::F16x3:
-        return ctx.F16[3];
-    case IR::Type::F16x4:
-        return ctx.F16[4];
-    case IR::Type::F32x2:
-        return ctx.F32[2];
-    case IR::Type::F32x3:
-        return ctx.F32[3];
-    case IR::Type::F32x4:
-        return ctx.F32[4];
-    case IR::Type::F64x2:
-        return ctx.F64[2];
-    case IR::Type::F64x3:
-        return ctx.F64[3];
-    case IR::Type::F64x4:
-        return ctx.F64[4];
     default:
         throw NotImplementedException("Phi node type {}", type);
     }
@@ -655,7 +615,6 @@ void PatchMeshInstructions(std::vector<u32>& code, const EmitContext& ctx) {
 
 std::vector<u32> EmitSPIRV(const Profile& profile, const RuntimeInfo& runtime_info, IR::Program& program, Bindings& bindings) {
     EmitContext ctx{profile, runtime_info, program, bindings};
-    DefineSoftwareMatrixFunctions(ctx, program);
     const Id main{DefineMain(ctx, program)};
     DefineEntryPoint(program, ctx, main);
     if (profile.support_float_controls) {

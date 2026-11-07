@@ -19,7 +19,6 @@
 #include "common/common_types.h"
 #include "video_core/engines/engine_interface.h"
 #include "video_core/engines/engine_upload.h"
-#include "video_core/fire_emblem_upscale.h"
 #include "video_core/game_dlss_status.h"
 #include "video_core/macro.h"
 #include "video_core/native_qmd.h"
@@ -65,13 +64,6 @@ public:
 
     /// Binds a rasterizer to this engine.
     void BindRasterizer(VideoCore::RasterizerInterface* rasterizer);
-
-    [[nodiscard]] bool MayWriteMemory(u32 method) const {
-        if (method >= native_plain_methods.size()) {
-            return true;
-        }
-        return native_mode ? !native_plain_methods[method] : execution_mask[method];
-    }
 
     /// The channel's MME data RAM, shared with its 3D engine.
     void SetNativeDataRam(std::array<u32, 0xc00>* data_ram) { native_data_ram = data_ram; }
@@ -252,8 +244,9 @@ public:
     }
 
     bool IsNativeMode() const { return native_mode; }
-    bool ProcessGameDlss(u64 program_id, u64 native_key);
-    void TraceDlssContract(u64 native_key, bool warn_unvalidated = true);
+    /// Whether the program being dispatched is a pass of a game DLSS evaluation the game's own
+    /// network may draw: its matrix multiplies (tensor-core instructions) are then emulated.
+    [[nodiscard]] bool EmulatesNativeTensorPrograms() const;
 
     /// GPU thread split with macros on its front half (gpu_split.h, EDEN_NX2_SPLIT=2), called by
     /// the front instead of CallMethod for native compute engines: runs their macros and macro
@@ -279,9 +272,8 @@ private:
     bool DispatchNativeCompute(const NativeQmdScheduler::Descriptor& descriptor);
     void ProcessNativeReportSemaphore(u32 argument);
     void DescribeNativeResources(const NativeQmdScheduler::Descriptor& qmd);
-    void RememberDlssMotionVectors();
-    bool TryFireEmblemUpscale(bool allow_history = true);
-    void CaptureFireEmblemJitter();
+    bool RememberDlssMotionVectors();
+    bool IsDlssOutputPass();
     bool FinishDlssEvaluation();
     void CheckDlssNetwork();
     [[nodiscard]] VideoCore::GameDlssReason GameDlssBlocker() const;
@@ -297,8 +289,6 @@ private:
     /// the game's own network output is shown instead of the replacement upscale.
     struct DlssChain {
         bool active{};
-        bool spatial_only{};
-        bool output_pass{};
         u32 rejected{};
         u32 clean_evaluations{};
         bool native{};
@@ -309,12 +299,12 @@ private:
         u32 good_checks{};
         u32 bad_checks{};
         VideoCore::GameDlssReason failure{};
-        /// Programs of evaluations that reached their output pass; they are skipped only after
-        /// the network fails its health checks.
-        std::unordered_set<u64> programs;
+        /// Programs of evaluations that reached their output pass; they no longer run while the
+        /// network can't be shown.
+        std::unordered_set<GPUVAddr> programs;
         /// This evaluation's programs and dispatches so far. Its programs join `programs` only
         /// at its output pass, so compute work after a look-alike first pass keeps running.
-        std::unordered_set<u64> pending;
+        std::unordered_set<GPUVAddr> pending;
         u32 dispatches{};
         u32 evaluations{};
         /// What the Graphics tab was last told.
@@ -350,9 +340,8 @@ private:
     /// colour image and camera jitter they go with.
     std::optional<Texture::TICEntry> dlss_motion_vectors;
     std::optional<Texture::TICEntry> dlss_depth;
-    u32 dlss_contract_trace_count{};
     GPUVAddr dlss_motion_color{};
-    VideoCommon::FireEmblemUpscale::FrameJitter fe_upscale_jitter;
+    std::array<f32, 2> dlss_jitter{};
     bool ProcessNativeMethod(Core::System& system, u32 method, u32 argument, bool is_last_call);
     NativeQmdScheduler native_qmd;
     std::array<u32, 0xc00>* native_data_ram{};

@@ -3,8 +3,6 @@
 
 #include <memory>
 
-#include "common/logging.h"
-#include "video_core/gpu_split.h"
 #include "video_core/renderer_vulkan/vk_buffer_cache.h"
 #include "video_core/renderer_vulkan/vk_fence_manager.h"
 #include "video_core/renderer_vulkan/vk_query_cache.h"
@@ -25,9 +23,7 @@ void InnerFence::Queue() {
     }
     // Get the current tick so we can wait for it
     wait_tick = scheduler.CurrentTick();
-    if (!scheduler.DeferFlush()) {
-        scheduler.Flush();
-    }
+    scheduler.Flush();
 }
 
 bool InnerFence::IsSignaled() const {
@@ -39,14 +35,6 @@ bool InnerFence::IsSignaled() const {
 
 void InnerFence::Wait() {
     if (is_stubbed) {
-        return;
-    }
-    // A deferred fence flush (Scheduler::DeferFlush) may not be submitted yet. Only the
-    // split's back may submit; other threads (the fencing thread) ask it to and wait. If the back
-    // has stopped, nothing else uses the scheduler and Wait below submits it.
-    if (!scheduler.IsSubmitted(wait_tick) && VideoCommon::GpuSplit::Get().Active() &&
-        !VideoCommon::GpuSplit::OnBackThread() && scheduler.WaitSubmitted(wait_tick)) {
-        scheduler.GetMasterSemaphore().Wait(wait_tick);
         return;
     }
     scheduler.Wait(wait_tick);
@@ -72,12 +60,6 @@ bool FenceManager::IsFenceSignaled(Fence& fence) const {
 
 void FenceManager::WaitFence(Fence& fence) {
     fence->Wait();
-}
-
-void FenceManager::SubmitDeferredWork() {
-    if (VideoCommon::GpuSplit::OnBackThread()) {
-        scheduler.FlushDeferred();
-    }
 }
 
 } // namespace Vulkan
