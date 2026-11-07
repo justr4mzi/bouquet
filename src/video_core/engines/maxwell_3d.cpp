@@ -1246,7 +1246,9 @@ void Maxwell3D::FrontDmaRead(VideoCommon::GpuSplit& split, FrontState& fs, u32 m
         VideoCommon::Nx2Profile::Add(VideoCommon::Nx2Profile::Counter::DmaReadBytes, read_bytes);
     }
     if (memory_manager.IsMemoryDirty(source, read_bytes, VideoCommon::CacheType::BufferCache)) {
-        memory_manager.FlushRegion(source, read_bytes, VideoCommon::CacheType::BufferCache);
+        split.Run([memory = &memory_manager, source, read_bytes] {
+            memory->FlushRegion(source, read_bytes, VideoCommon::CacheType::BufferCache);
+        });
     }
     // Write out the reports held in the query cache, or the read returns stale occlusion counts.
     split.Run(
