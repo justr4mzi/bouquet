@@ -64,6 +64,7 @@ session.** Keep it factual: what was checked, what was integrated, what failed, 
 | Frizti | github.com/Frizti/Lichii | `oot-gather-fix`, `nx2` | Split-thread perf |
 | chuppatricky | github.com/chuppatricky/Lichii | tags `chuppatricky-amd-testbuild-v*` | AMD fixes |
 | Eglantine-DKB | github.com/monteger8/Eglantine-DKB | `dkb-terrain` | DK Bananza |
+| ZendNevs | github.com/ZendNevs/Eglantine-ZendNevs | `main` | DK Bananza (pacing, dynamic FPS) |
 | KektJ | github.com/KektJ/Eglantine | `perf/crowded-areas` | Fire Emblem, crowded areas |
 | Wael3rd | github.com/Wael3rd/Eglantine-MKW | `mkw-eglantine` | MKW |
 | eden-fefw | github.com/xDarkWindx/eden-fefw | `main` | Ideas only |
