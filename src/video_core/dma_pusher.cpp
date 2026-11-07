@@ -228,6 +228,11 @@ bool DmaPusher::Step() {
             }
         }
         parked_methods.clear();
+        if (dma_state.method_count != 0) {
+            dma_state.method_count = 0;
+            dma_increment_once = false;
+        }
+        split_method_end = 0;
         dma_pushbuffer.pop();
         dma_pushbuffer_subindex = 0;
     } else {
