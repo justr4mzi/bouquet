@@ -31,7 +31,7 @@ bool ReadFromUser(KernelCore& kernel, s32* out, KProcessAddress address) {
     return true;
 }
 
-bool ReadFromUser(KernelCore& kernel, s64* out, KProcessAddress address) {
+[[maybe_unused]] bool ReadFromUser(KernelCore& kernel, s64* out, KProcessAddress address) {
     auto& memory = GetCurrentMemory(kernel);
     const u64 addr = GetInteger(address);
 
