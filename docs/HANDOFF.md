@@ -426,3 +426,6 @@ Les remotes `pokedinner` (`https://git.eden-emu.dev/Franseven/PokeDinner-a-Eglan
    - Ajustement de `DefineGlobalMemoryFunctions(const IR::Program& program)` pour rendre `program.blocks` accessible lors de l'analyse des opcodes atomiques utilisés.
    - Alignement de la détection des storage buffers avec la base SmileyTatsu (`info.native_global_bounds || info.nvn_buffer_used`) en remplacement du prédicat Lichii `UsesNvnStorageDescriptor`.
    - Nettoyage du bloc de CAS atomique global non présent dans le jeu d'instructions IR SmileyTatsu.
+
+5. **Correction de syntaxe des engines (build-35)** :
+   - Suppression des accolades fermantes orphelines dans `kepler_compute.cpp` (`CallMethod`) et `maxwell_3d.cpp` (`CallMethod`, `CallMultiMethod`, `ReleaseFront`) issues du cherry-pick de #438.
