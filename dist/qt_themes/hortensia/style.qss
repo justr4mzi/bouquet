@@ -270,7 +270,7 @@ QWidget:disabled {
 }
 
 QAbstractItemView {
-    alternate-background-color: #2c2f32;
+    alternate-background-color: #191720;
     color: #e8e4ef;
     border: 1px solid #3A3939;
     border-radius: 2px;
@@ -827,8 +827,23 @@ QTabBar QToolButton::left-arrow:disabled {
 
 QTreeView,
 QListView {
-    border: 1px solid #282431;
-    background-color: #110f15;
+    border: 1px solid #221f2b;
+    background-color: #16141b;
+    alternate-background-color: #191720;
+}
+
+QTreeView::item {
+    border-bottom: 1px solid #221f2b;
+    padding: 2px 0px;
+}
+
+QTreeView::item:hover {
+    background-color: #211e2b;
+}
+
+QTreeView::item:selected:!active {
+    background-color: #1d1a26;
+    color: #e8e4ef;
 }
 
 QTreeView:branch:selected,

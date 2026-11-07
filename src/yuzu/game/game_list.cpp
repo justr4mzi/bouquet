@@ -274,6 +274,9 @@ void GameList::OnPopulatingCompleted(const QStringList& watch_list) {
     // restore collapsed/expanded flags
     if (m_isTreeMode) {
         const auto* root = item_model->invisibleRootItem();
+        for (int i = 0; i < root->rowCount(); ++i) {
+            tree_view->setFirstColumnSpanned(i, root->index(), true);
+        }
         for (int i = 1; i < root->rowCount() - 1; ++i) {
             const auto* dir_item = root->child(i);
             const auto type = dir_item->data(GameListItem::TypeRole).value<GameListItemType>();
