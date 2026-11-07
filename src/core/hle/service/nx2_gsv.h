@@ -1946,7 +1946,7 @@ private:
         // at ~70% speed with stuttering sound (~35% with the game's 30 FPS mode).
         static const bool mkw_movie_unpaced = [] {
             const char* v = std::getenv("EDEN_MKW_MOVIE_UNPACED");
-            return v != nullptr && v[0] == '1';
+            return v == nullptr || v[0] != '0';
         }();
         if (mkw_movie_unpaced) {
             const auto mkw_last = Nx2MkwMovieFrameClock().load(std::memory_order_relaxed);
