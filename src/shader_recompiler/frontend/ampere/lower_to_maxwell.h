@@ -2120,24 +2120,35 @@ inline LoweredProgram LowerToMaxwellWith(std::span<const Instruction> code, u32 
                 (offsets && (bindless || source_b == 255 || (source_a != 255 && source_a >= 245))) ||
                 insn.Bits(89, 1) || mask == 0 ||
                 (bindless ? (handle >= 246 || insn.Bits(46, 13) || !insn.Bits(91, 1))
-                          : (insn.Bits(40, 14) > 0x1fff || binding >= 18 ||
-                             (result.required_texture_buffer != ~0U && result.required_texture_buffer != binding))))
+                          : (insn.Bits(40, 14) > 0x1fff || binding >= 18)))
                 return fail(index, "native texture gather mode");
-            if (!bindless) result.required_texture_buffer = binding;
+            const bool second_buffer = !bindless && !bind_texture_buffer(binding);
             // Two coordinates: x in Ra, y in Rb (the coordinate list splits evenly across them);
             // with an offset, x and y in Ra, Ra+1 and the offset in Rb.
             const u32 y = !offsets ? source_b : source_a == 255 ? 255U : source_a + 1;
             emit(0x5c98000000000000ULL | predicate | 250 | (u64{15} << 39) | (u64{source_a} << 20));
             emit(0x5c98000000000000ULL | predicate | 251 | (u64{15} << 39) | (u64{y} << 20));
-            if (offsets) {
-                emit(0x5c98000000000000ULL | predicate | 246 | (u64{15} << 39) | (u64{source_b} << 20));
-            }
-            if (bindless) {
+            if (second_buffer) {
+                emit(0x4c98000000070000ULL | 246 | (u64{15} << 39) | (u64{insn.Bits(40, 14)} << 20) |
+                     (u64{binding} << 34));
+                if (offsets) {
+                    emit(0x5c98000000000000ULL | predicate | 247 | (u64{15} << 39) | (u64{source_b} << 20));
+                }
+                emit(0xdec0000000000000ULL | predicate | 250 | (u64{250} << 8) | (u64{246} << 20) |
+                     (u64{2} << 28) | (u64{mask} << 31) | (u64{offsets ? 1U : 0U} << 36) |
+                     (u64{insn.Bits(87, 2)} << 38) | (u64{insn.Bits(90, 1)} << 49) | (u64{7} << 51));
+            } else if (bindless) {
+                if (offsets) {
+                    emit(0x5c98000000000000ULL | predicate | 246 | (u64{15} << 39) | (u64{source_b} << 20));
+                }
                 emit(0x5c98000000000000ULL | predicate | 246 | (u64{15} << 39) | (u64{handle} << 20));
                 emit(0xdec0000000000000ULL | predicate | 250 | (u64{250} << 8) | (u64{246} << 20) |
                      (u64{2} << 28) | (u64{mask} << 31) | (u64{insn.Bits(87, 2)} << 38) |
                      (u64{insn.Bits(90, 1)} << 49) | (u64{7} << 51));
             } else {
+                if (offsets) {
+                    emit(0x5c98000000000000ULL | predicate | 246 | (u64{15} << 39) | (u64{source_b} << 20));
+                }
             emit(0xc800000000000000ULL | predicate | 250 | (u64{250} << 8) |
                  (u64{offsets ? 246U : 255U} << 20) | (u64{2} << 28) | (u64{mask} << 31) |
                  (u64{insn.Bits(40, 14)} << 36) | (u64{insn.Bits(90, 1)} << 49) | (u64{7} << 51) |
