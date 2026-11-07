@@ -45,6 +45,7 @@ add_executable(tests
     video_core/shader_invalidation.cpp
     video_core/descriptor_table.cpp
     video_core/spirv_atomic_retry.cpp
+    video_core/global_atomic_routing.cpp
     input_common/calibration_configuration_job.cpp
 )
 
