@@ -429,3 +429,6 @@ Les remotes `pokedinner` (`https://git.eden-emu.dev/Franseven/PokeDinner-a-Eglan
 
 5. **Correction de syntaxe des engines (build-35)** :
    - Suppression des accolades fermantes orphelines dans `kepler_compute.cpp` (`CallMethod`) et `maxwell_3d.cpp` (`CallMethod`, `CallMultiMethod`, `ReleaseFront`) issues du cherry-pick de #438.
+
+6. **Correction compilateur MSVC (k_address_arbiter.cpp)** :
+   - Marquage `[[maybe_unused]]` de la surcharge `ReadFromUser(s64*)` pour ?viter l'erreur C5245 sur le compilateur MSVC.
