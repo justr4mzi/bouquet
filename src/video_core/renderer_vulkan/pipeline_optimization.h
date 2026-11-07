@@ -12,12 +12,14 @@
 namespace Vulkan {
 
 inline bool BuildsUnoptimized(VkDriverId driver_id, u64 shader_hash) {
-    // The Legend of Zelda: Ocarina of Time (0400486024DEC000), driver 2.0.353 on an RX 6600 XT
-    static constexpr std::array<u64, 2> amd_proprietary{
+    // The Legend of Zelda: Ocarina of Time (0400486024DEC000), driver 2.0.353 on an RX 6600 XT / RX 6700 XT
+    static constexpr std::array<u64, 3> amd_proprietary{
         0xeff3ccbe1438679dULL, // compute shader built as the AV1 intro starts: 6 min (#200)
         0xf9ea14a22394f5b1ULL, // compute shader built as the AV1 intro starts: 18 min (#200)
+        0x37b01132333ef8dfULL, // compute shader built during gameplay: 12.8s stall on GPU thread
     };
-    static const bool enabled{Common::EnvGate("EGLANTINE_AMD_UNOPT_COMPUTE")};
+    static const bool enabled{Common::EnvGate("EGLANTINE_AMD_UNOPT_COMPUTE") &&
+                              Common::EnvGate("EDEN_NX2_AMD_SAFE_COMPILE")};
     return enabled && driver_id == VK_DRIVER_ID_AMD_PROPRIETARY &&
            std::ranges::find(amd_proprietary, shader_hash) != amd_proprietary.end();
 }
