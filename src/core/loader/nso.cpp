@@ -58,11 +58,11 @@ constexpr u32 PageAlignSize(u32 size) {
 // its frames itself. Make the exported function store true and succeed (any SDK version: found by
 // name). EDEN_NX2_REPORT_VRR=0 leaves it alone.
 static void ReportVrrSupported(std::span<u8> image, std::string_view module_name, u64 program_id) {
-    static const char* const value = std::getenv("EDEN_NX2_REPORT_VRR");
+    static const char* const vrr_env = std::getenv("EDEN_NX2_REPORT_VRR");
     const bool is_mkw = program_id == Settings::MarioKartWorldProgramId ||
                         program_id == 0x0400380020056000ULL ||
                         program_id == 0x0400C3F00006E000ULL;
-    const bool enabled = value != nullptr ? value[0] != '0' : !is_mkw;
+    const bool enabled = vrr_env != nullptr ? vrr_env[0] != '0' : !is_mkw;
     if (!enabled || image.size() < 8) {
         return;
     }
