@@ -420,3 +420,9 @@ Les remotes `pokedinner` (`https://git.eden-emu.dev/Franseven/PokeDinner-a-Eglan
    - Action contextuelle clic droit dans la liste de jeux : « Appliquer les paramètres recommandés » (`38ea9bb7ee`).
    - Publication des builds de test sous forme de **Draft Releases** (brouillons visibles uniquement par le propriétaire) dans `.github/workflows/release-binaries.yml` (`f27dc18d64`).
    - Conversion des anciennes pre-releases de test (`v0.2.0-rc2`, `v0.2.0-rc1-mkw-perf`, `build-34`, `build-10`) en brouillons (drafts).
+
+4. **Adaptation du backend SPIR-V (build-35)** :
+   - Ajout de l'en-tête `<atomic>` manquant pour `requires_coherent_global_memory` dans `spirv_emit_context.cpp`.
+   - Ajustement de `DefineGlobalMemoryFunctions(const IR::Program& program)` pour rendre `program.blocks` accessible lors de l'analyse des opcodes atomiques utilisés.
+   - Alignement de la détection des storage buffers avec la base SmileyTatsu (`info.native_global_bounds || info.nvn_buffer_used`) en remplacement du prédicat Lichii `UsesNvnStorageDescriptor`.
+   - Nettoyage du bloc de CAS atomique global non présent dans le jeu d'instructions IR SmileyTatsu.
